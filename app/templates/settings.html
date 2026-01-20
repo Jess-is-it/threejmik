@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Settings</h2>
+      <div class="text-secondary">Global monitoring thresholds.</div>
+    </div>
+  </div>
+</div>
+<form class="card" method="post" action="/settings">
+  <div class="card-body">
+    <div class="mb-3">
+      <label class="form-label">Stale Backup Alert (days)</label>
+      <input class="form-control" type="number" name="stale_backup_days" min="1" value="{{ settings.stale_backup_days }}">
+    </div>
+  </div>
+  <div class="card-footer text-end">
+    <button class="btn btn-primary" type="submit">Save Settings</button>
+  </div>
+</form>
+{% endblock %}

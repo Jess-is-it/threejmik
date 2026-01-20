@@ -1,0 +1,11 @@
+.page-wrapper {
+  padding-top: 1.5rem;
+  padding-bottom: 2rem;
+}
+pre {
+  background: #f8fafc;
+  padding: 1rem;
+  border-radius: 6px;
+  max-height: 300px;
+  overflow: auto;
+}

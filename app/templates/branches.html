@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Branches</h2>
+      <div class="text-secondary">Manage franchisee configuration and storage.</div>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col-lg-5">
+    <form class="card" method="post" action="/branches">
+      <div class="card-header"><h3 class="card-title">Add Branch</h3></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="name" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Franchisee Emails</label>
+          <input class="form-control" name="franchisee_emails" placeholder="a@x.com,b@y.com">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Drive Folder ID</label>
+          <input class="form-control" name="drive_folder_id">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Drive Folder Link</label>
+          <input class="form-control" name="drive_folder_link">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Retention Days</label>
+          <input class="form-control" type="number" name="retention_days" value="30" min="1">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Telegram Recipients</label>
+          <input class="form-control" name="telegram_recipients" placeholder="@user1,@user2">
+        </div>
+      </div>
+      <div class="card-footer text-end">
+        <button class="btn btn-primary" type="submit">Create Branch</button>
+      </div>
+    </form>
+  </div>
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Current Branches</h3></div>
+      <div class="table-responsive">
+        <table class="table card-table table-vcenter">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Retention</th>
+              <th>Drive</th>
+              <th>Telegram</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for branch in branches %}
+            <tr>
+              <td>{{ branch.name }}</td>
+              <td>{{ branch.retention_days }} days</td>
+              <td>{{ branch.drive_folder_link if branch.drive_folder_link else "-" }}</td>
+              <td>{{ branch.telegram_recipients if branch.telegram_recipients else "-" }}</td>
+              <td class="text-end">
+                <form method="post" action="/branches/{{ branch.id }}/test-drive" class="d-inline">
+                  <button class="btn btn-outline-secondary btn-sm" type="submit">Test Drive</button>
+                </form>
+                <form method="post" action="/branches/{{ branch.id }}/test-telegram" class="d-inline">
+                  <button class="btn btn-outline-secondary btn-sm" type="submit">Test Telegram</button>
+                </form>
+                <form method="post" action="/branches/{{ branch.id }}/delete" class="d-inline" onsubmit="return confirm('Delete branch?');">
+                  <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-secondary">No branches yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

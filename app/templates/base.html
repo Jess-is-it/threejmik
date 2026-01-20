@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }} - {{ title if title else "" }}</title>
+  <link rel="stylesheet" href="/static/tabler/tabler.min.css">
+  <link rel="stylesheet" href="/static/tabler/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="theme-light">
+  <div class="page">
+    <header class="navbar navbar-expand-md navbar-light d-print-none">
+      <div class="container-xl">
+        <h1 class="navbar-brand navbar-brand-autodark">
+          <a href="/">
+            <span class="navbar-brand-text">RouterVault</span>
+          </a>
+        </h1>
+        <div class="navbar-nav">
+          <a class="nav-link" href="/">Dashboard</a>
+          <a class="nav-link" href="/branches">Branches</a>
+          <a class="nav-link" href="/routers">Routers</a>
+          <a class="nav-link" href="/settings">Settings</a>
+        </div>
+      </div>
+    </header>
+    <div class="page-wrapper">
+      <div class="container-xl">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+  <script src="/static/tabler/tabler.min.js"></script>
+</body>
+</html>

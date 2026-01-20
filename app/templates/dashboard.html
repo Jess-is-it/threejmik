@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Router Status</h2>
+      <div class="text-secondary">Latest health, backups, and change signals.</div>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table card-table table-vcenter">
+      <thead>
+        <tr>
+          <th>Router</th>
+          <th>Branch</th>
+          <th>Last Backup</th>
+          <th>Last Success</th>
+          <th>Last Error</th>
+          <th>Last Change</th>
+          <th>Links</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for router in routers %}
+        <tr>
+          <td><a href="/routers/{{ router.id }}">{{ router.name }}</a></td>
+          <td>{{ router.branch_name }}</td>
+          <td>{{ format_ts(router.last_backup_at) }}</td>
+          <td>{{ format_ts(router.last_success_at) }}</td>
+          <td>{{ router.last_error if router.last_error else "-" }}</td>
+          <td>{{ format_ts(router.last_config_change_at) }}</td>
+          <td>{{ router.last_backup_links if router.last_backup_links else "-" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-secondary">No routers registered yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
