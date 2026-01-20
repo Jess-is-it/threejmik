@@ -27,6 +27,12 @@
     </header>
     <div class="page-wrapper">
       <div class="container-xl">
+        {% if notice %}
+        <div class="alert alert-success" role="alert">{{ notice }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </div>

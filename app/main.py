@@ -1,152 +1,51 @@
-import base64
-import os
+import json
 import secrets
-import sqlite3
-from datetime import datetime
+from urllib.parse import quote
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_303_SEE_OTHER
 
+from app.db import get_db, init_db, utcnow
+from app.services.backup import run_router_check
+from app.services.config import settings
+from app.services.crypto import decrypt_secret, encrypt_secret
+from app.services.drive import get_drive_service
+from app.services.mikrotik import MikroTikClient, check_port
+from app.services.scheduler import scheduler, start_scheduler
+from app.services.telegram import send_message
+
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("ROUTERVAULT_DB_PATH", "/data/routervault.db"))
 
 app = FastAPI(title="RouterVault")
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 security = HTTPBasic()
-
-
-def get_env(name: str, default: Optional[str] = None, required: bool = False) -> str:
-    value = os.getenv(name, default)
-    if required and not value:
-        raise RuntimeError(f"Missing required env var: {name}")
-    return value
-
-
-TEMPLATES = Environment(
-    loader=FileSystemLoader(BASE_DIR / "templates"),
-    autoescape=select_autoescape(["html", "xml"]),
-)
-
-
-@app.middleware("http")
-async def add_template_globals(request: Request, call_next):
-    request.state.template_globals = {
-        "request": request,
-        "app_name": "RouterVault",
-    }
-    return await call_next(request)
-
-
-def render(template_name: str, **context):
-    template = TEMPLATES.get_template(template_name)
-    base_context = context.pop("_base", {})
-    return template.render(**base_context, **context)
-
-
-def get_db() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    with get_db() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS branches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                franchisee_emails TEXT,
-                drive_folder_id TEXT,
-                drive_folder_link TEXT,
-                retention_days INTEGER DEFAULT 30,
-                telegram_recipients TEXT,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS routers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                branch_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                ip TEXT NOT NULL,
-                api_port INTEGER DEFAULT 8728,
-                username TEXT NOT NULL,
-                encrypted_password TEXT NOT NULL,
-                enabled INTEGER DEFAULT 1,
-                backup_check_interval_hours INTEGER DEFAULT 6,
-                daily_baseline_time TEXT DEFAULT '02:00',
-                force_backup_every_days INTEGER DEFAULT 7,
-                last_log_check_at TEXT,
-                last_success_at TEXT,
-                last_backup_at TEXT,
-                last_error TEXT,
-                last_hash TEXT,
-                last_config_change_at TEXT,
-                last_backup_links TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (branch_id) REFERENCES branches (id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS backups (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                router_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                rsc_hash TEXT,
-                rsc_link TEXT,
-                backup_link TEXT,
-                change_summary TEXT,
-                logs TEXT,
-                FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                stale_backup_days INTEGER DEFAULT 3
-            );
-            INSERT OR IGNORE INTO settings (id, stale_backup_days) VALUES (1, 3);
-            """
-        )
 
 
 @app.on_event("startup")
 def startup_event():
-    init_db()
+    init_db(settings.db_path)
+    start_scheduler()
 
 
-def get_fernet() -> Fernet:
-    raw = get_env("ROUTERVAULT_ENCRYPTION_KEY", required=True)
-    try:
-        key = raw.encode("utf-8")
-        if len(key) != 44:
-            key = base64.urlsafe_b64encode(key)
-        return Fernet(key)
-    except Exception as exc:
-        raise RuntimeError("Invalid encryption key") from exc
-
-
-def encrypt_secret(value: str) -> str:
-    return get_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
-
-
-def decrypt_secret(value: str) -> str:
-    try:
-        return get_fernet().decrypt(value.encode("utf-8")).decode("utf-8")
-    except InvalidToken:
-        return ""
+@app.on_event("shutdown")
+def shutdown_event():
+    if scheduler.running:
+        scheduler.shutdown()
 
 
 def require_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    username = get_env("ROUTERVAULT_BASIC_USER", "admin")
-    password = get_env("ROUTERVAULT_BASIC_PASSWORD", "changeme")
-    correct = secrets.compare_digest(credentials.username, username) and secrets.compare_digest(
-        credentials.password, password
+    correct = secrets.compare_digest(credentials.username, settings.basic_user) and secrets.compare_digest(
+        credentials.password, settings.basic_password
     )
     if not correct:
         raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
@@ -159,9 +58,32 @@ def format_ts(value: Optional[str]) -> str:
     return value
 
 
+def is_stale(last_success: Optional[str], stale_days: int) -> bool:
+    if not last_success:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(last_success)
+    except ValueError:
+        return True
+    return datetime.utcnow() - last_dt >= timedelta(days=stale_days)
+
+
+def parse_links(raw: Optional[str]) -> dict:
+    if not raw:
+    return {}
+
+
+def quote_message(message: str) -> str:
+    return quote(str(message))
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
 @app.get("/", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def dashboard(request: Request):
-    with get_db() as conn:
+    with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
             SELECT routers.*, branches.name AS branch_name
@@ -170,25 +92,56 @@ def dashboard(request: Request):
             ORDER BY routers.created_at DESC
             """
         ).fetchall()
-    body = render(
+        settings_row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
+    stale_days = settings_row["stale_backup_days"] if settings_row else 3
+    return templates.TemplateResponse(
         "dashboard.html",
-        _base=request.state.template_globals,
-        routers=routers,
-        format_ts=format_ts,
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "routers": routers,
+            "format_ts": format_ts,
+            "is_stale": lambda ts: is_stale(ts, stale_days),
+            "parse_links": parse_links,
+            "stale_days": stale_days,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
     )
-    return HTMLResponse(body)
 
 
 @app.get("/branches", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def list_branches(request: Request):
-    with get_db() as conn:
+    with get_db(settings.db_path) as conn:
         branches = conn.execute("SELECT * FROM branches ORDER BY name").fetchall()
-    body = render(
+    return templates.TemplateResponse(
         "branches.html",
-        _base=request.state.template_globals,
-        branches=branches,
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "branches": branches,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
     )
-    return HTMLResponse(body)
+
+
+@app.get("/branches/{branch_id}", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
+def edit_branch(request: Request, branch_id: int):
+    with get_db(settings.db_path) as conn:
+        branch = conn.execute("SELECT * FROM branches WHERE id = ?", (branch_id,)).fetchone()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    return templates.TemplateResponse(
+        "branch_edit.html",
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "branch": branch,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
+    )
 
 
 @app.post("/branches", dependencies=[Depends(require_basic_auth)])
@@ -200,12 +153,13 @@ def create_branch(
     retention_days: int = Form(30),
     telegram_recipients: str = Form(""),
 ):
-    with get_db() as conn:
+    now = utcnow()
+    with get_db(settings.db_path) as conn:
         conn.execute(
             """
             INSERT INTO branches
-            (name, franchisee_emails, drive_folder_id, drive_folder_link, retention_days, telegram_recipients, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (name, franchisee_emails, drive_folder_id, drive_folder_link, retention_days, telegram_recipients, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -214,22 +168,85 @@ def create_branch(
                 drive_folder_link,
                 retention_days,
                 telegram_recipients,
-                datetime.utcnow().isoformat(),
+                now,
+                now,
             ),
         )
-    return RedirectResponse("/branches", status_code=HTTP_303_SEE_OTHER)
+    return RedirectResponse("/branches?notice=branch_created", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/branches/{branch_id}", dependencies=[Depends(require_basic_auth)])
+def update_branch(
+    branch_id: int,
+    name: str = Form(...),
+    franchisee_emails: str = Form(""),
+    drive_folder_id: str = Form(""),
+    drive_folder_link: str = Form(""),
+    retention_days: int = Form(30),
+    telegram_recipients: str = Form(""),
+):
+    with get_db(settings.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE branches
+            SET name = ?, franchisee_emails = ?, drive_folder_id = ?, drive_folder_link = ?,
+                retention_days = ?, telegram_recipients = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                name,
+                franchisee_emails,
+                drive_folder_id,
+                drive_folder_link,
+                retention_days,
+                telegram_recipients,
+                utcnow(),
+                branch_id,
+            ),
+        )
+    return RedirectResponse(f"/branches/{branch_id}?notice=branch_updated", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.post("/branches/{branch_id}/delete", dependencies=[Depends(require_basic_auth)])
 def delete_branch(branch_id: int):
-    with get_db() as conn:
+    with get_db(settings.db_path) as conn:
         conn.execute("DELETE FROM branches WHERE id = ?", (branch_id,))
-    return RedirectResponse("/branches", status_code=HTTP_303_SEE_OTHER)
+    return RedirectResponse("/branches?notice=branch_deleted", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/branches/{branch_id}/test-drive", dependencies=[Depends(require_basic_auth)])
+def test_drive(branch_id: int):
+    try:
+        if not settings.mock_mode:
+            get_drive_service()
+        return RedirectResponse(f"/branches/{branch_id}?notice=drive_ok", status_code=HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        return RedirectResponse(
+            f"/branches/{branch_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
+        )
+
+
+@app.post("/branches/{branch_id}/test-telegram", dependencies=[Depends(require_basic_auth)])
+def test_telegram(branch_id: int):
+    try:
+        with get_db(settings.db_path) as conn:
+            branch = conn.execute("SELECT * FROM branches WHERE id = ?", (branch_id,)).fetchone()
+        if not branch:
+            raise RuntimeError("Branch not found")
+        recipients = [r.strip() for r in (branch["telegram_recipients"] or "").split(",") if r.strip()]
+        if not recipients:
+            raise RuntimeError("No telegram recipients set")
+        send_message(recipients, "RouterVault test message")
+        return RedirectResponse(f"/branches/{branch_id}?notice=telegram_ok", status_code=HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        return RedirectResponse(
+            f"/branches/{branch_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
+        )
 
 
 @app.get("/routers", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def list_routers(request: Request):
-    with get_db() as conn:
+    with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
             SELECT routers.*, branches.name AS branch_name
@@ -239,64 +256,22 @@ def list_routers(request: Request):
             """
         ).fetchall()
         branches = conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
-    body = render(
+    return templates.TemplateResponse(
         "routers.html",
-        _base=request.state.template_globals,
-        routers=routers,
-        branches=branches,
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "routers": routers,
+            "branches": branches,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
     )
-    return HTMLResponse(body)
-
-
-@app.post("/routers", dependencies=[Depends(require_basic_auth)])
-def create_router(
-    branch_id: int = Form(...),
-    name: str = Form(...),
-    ip: str = Form(...),
-    api_port: int = Form(8728),
-    username: str = Form(...),
-    password: str = Form(...),
-    enabled: Optional[str] = Form(None),
-    backup_check_interval_hours: int = Form(6),
-    daily_baseline_time: str = Form("02:00"),
-    force_backup_every_days: int = Form(7),
-):
-    with get_db() as conn:
-        conn.execute(
-            """
-            INSERT INTO routers
-            (branch_id, name, ip, api_port, username, encrypted_password, enabled,
-             backup_check_interval_hours, daily_baseline_time, force_backup_every_days,
-             created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                branch_id,
-                name,
-                ip,
-                api_port,
-                username,
-                encrypt_secret(password),
-                1 if enabled else 0,
-                backup_check_interval_hours,
-                daily_baseline_time,
-                force_backup_every_days,
-                datetime.utcnow().isoformat(),
-            ),
-        )
-    return RedirectResponse("/routers", status_code=HTTP_303_SEE_OTHER)
-
-
-@app.post("/routers/{router_id}/delete", dependencies=[Depends(require_basic_auth)])
-def delete_router(router_id: int):
-    with get_db() as conn:
-        conn.execute("DELETE FROM routers WHERE id = ?", (router_id,))
-    return RedirectResponse("/routers", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.get("/routers/{router_id}", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
-def router_detail(request: Request, router_id: int):
-    with get_db() as conn:
+def router_detail(request: Request, router_id: int, backup_id: Optional[int] = None):
+    with get_db(settings.db_path) as conn:
         router = conn.execute(
             """
             SELECT routers.*, branches.name AS branch_name
@@ -314,53 +289,242 @@ def router_detail(request: Request, router_id: int):
             """,
             (router_id,),
         ).fetchall()
+        selected = None
+        if backup_id:
+            selected = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+        if not selected and backups:
+            selected = backups[0]
     if not router:
         raise HTTPException(status_code=404, detail="Router not found")
-    body = render(
+    logs = []
+    if selected and selected["logs"]:
+        try:
+            logs = json.loads(selected["logs"])
+        except json.JSONDecodeError:
+            logs = []
+    return templates.TemplateResponse(
         "router_detail.html",
-        _base=request.state.template_globals,
-        router=router,
-        backups=backups,
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "router": router,
+            "backups": backups,
+            "selected": selected,
+            "logs": logs,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
     )
-    return HTMLResponse(body)
+
+
+@app.get("/routers/{router_id}/edit", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
+def edit_router(request: Request, router_id: int):
+    with get_db(settings.db_path) as conn:
+        router = conn.execute("SELECT * FROM routers WHERE id = ?", (router_id,)).fetchone()
+        branches = conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
+    if not router:
+        raise HTTPException(status_code=404, detail="Router not found")
+    return templates.TemplateResponse(
+        "router_edit.html",
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "router": router,
+            "branches": branches,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.post("/routers", dependencies=[Depends(require_basic_auth)])
+def create_router(
+    branch_id: int = Form(...),
+    name: str = Form(...),
+    ip: str = Form(...),
+    api_port: int = Form(8728),
+    username: str = Form(...),
+    password: str = Form(...),
+    enabled: Optional[str] = Form(None),
+    backup_check_interval_hours: int = Form(6),
+    daily_baseline_time: str = Form("02:00"),
+    force_backup_every_days: int = Form(7),
+):
+    now = utcnow()
+    with get_db(settings.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO routers
+            (branch_id, name, ip, api_port, username, encrypted_password, enabled,
+             backup_check_interval_hours, daily_baseline_time, force_backup_every_days,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                branch_id,
+                name,
+                ip,
+                api_port,
+                username,
+                encrypt_secret(password),
+                1 if enabled else 0,
+                backup_check_interval_hours,
+                daily_baseline_time,
+                force_backup_every_days,
+                now,
+                now,
+            ),
+        )
+    return RedirectResponse("/routers?notice=router_created", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/routers/{router_id}", dependencies=[Depends(require_basic_auth)])
+def update_router(
+    router_id: int,
+    branch_id: int = Form(...),
+    name: str = Form(...),
+    ip: str = Form(...),
+    api_port: int = Form(8728),
+    username: str = Form(...),
+    password: str = Form(""),
+    enabled: Optional[str] = Form(None),
+    backup_check_interval_hours: int = Form(6),
+    daily_baseline_time: str = Form("02:00"),
+    force_backup_every_days: int = Form(7),
+):
+    with get_db(settings.db_path) as conn:
+        if password:
+            conn.execute(
+                """
+                UPDATE routers
+                SET branch_id = ?, name = ?, ip = ?, api_port = ?, username = ?, encrypted_password = ?, enabled = ?,
+                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    branch_id,
+                    name,
+                    ip,
+                    api_port,
+                    username,
+                    encrypt_secret(password),
+                    1 if enabled else 0,
+                    backup_check_interval_hours,
+                    daily_baseline_time,
+                    force_backup_every_days,
+                    utcnow(),
+                    router_id,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE routers
+                SET branch_id = ?, name = ?, ip = ?, api_port = ?, username = ?, enabled = ?,
+                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    branch_id,
+                    name,
+                    ip,
+                    api_port,
+                    username,
+                    1 if enabled else 0,
+                    backup_check_interval_hours,
+                    daily_baseline_time,
+                    force_backup_every_days,
+                    utcnow(),
+                    router_id,
+                ),
+            )
+    return RedirectResponse(f"/routers/{router_id}/edit?notice=router_updated", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/routers/{router_id}/delete", dependencies=[Depends(require_basic_auth)])
+def delete_router(router_id: int):
+    with get_db(settings.db_path) as conn:
+        conn.execute("DELETE FROM routers WHERE id = ?", (router_id,))
+    return RedirectResponse("/routers?notice=router_deleted", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.post("/routers/{router_id}/test", dependencies=[Depends(require_basic_auth)])
 def test_router(router_id: int):
-    with get_db() as conn:
+    with get_db(settings.db_path) as conn:
         router = conn.execute("SELECT * FROM routers WHERE id = ?", (router_id,)).fetchone()
     if not router:
         raise HTTPException(status_code=404, detail="Router not found")
-    return RedirectResponse(f"/routers/{router_id}?test=ok", status_code=HTTP_303_SEE_OTHER)
+    try:
+        client = MikroTikClient(
+            host=router["ip"],
+            port=router["api_port"],
+            username=router["username"],
+            password=decrypt_secret(router["encrypted_password"]),
+        )
+        ok, message = client.test_connection()
+        if not ok:
+            ok, message = check_port(router["ip"], router["api_port"])
+        return RedirectResponse(
+            f"/routers/{router_id}?notice={'router_ok' if ok else 'router_fail'}&error={'' if ok else quote_message(message)}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
+    except Exception as exc:
+        return RedirectResponse(
+            f"/routers/{router_id}?notice=router_fail&error={quote_message(exc)}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
 
 
-@app.post("/branches/{branch_id}/test-drive", dependencies=[Depends(require_basic_auth)])
-def test_drive(branch_id: int):
-    return RedirectResponse(f"/branches?drive_test={branch_id}", status_code=HTTP_303_SEE_OTHER)
-
-
-@app.post("/branches/{branch_id}/test-telegram", dependencies=[Depends(require_basic_auth)])
-def test_telegram(branch_id: int):
-    return RedirectResponse(f"/branches?telegram_test={branch_id}", status_code=HTTP_303_SEE_OTHER)
+@app.post("/routers/{router_id}/backup", dependencies=[Depends(require_basic_auth)])
+def trigger_backup(router_id: int):
+    with get_db(settings.db_path) as conn:
+        router = conn.execute(
+            """
+            SELECT routers.*, branches.name AS branch_name,
+                   branches.franchisee_emails,
+                   branches.retention_days,
+                   branches.telegram_recipients
+            FROM routers
+            JOIN branches ON branches.id = routers.branch_id
+            WHERE routers.id = ?
+            """,
+            (router_id,),
+        ).fetchone()
+    if not router:
+        raise HTTPException(status_code=404, detail="Router not found")
+    try:
+        run_router_check(dict(router), baseline_due=True)
+        return RedirectResponse(f"/routers/{router_id}?notice=backup_forced", status_code=HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        return RedirectResponse(
+            f"/routers/{router_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
+        )
 
 
 @app.get("/settings", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def settings_page(request: Request):
-    with get_db() as conn:
-        settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
-    body = render(
+    with get_db(settings.db_path) as conn:
+        settings_row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
+    return templates.TemplateResponse(
         "settings.html",
-        _base=request.state.template_globals,
-        settings=settings,
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "settings": settings_row,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
     )
-    return HTMLResponse(body)
 
 
 @app.post("/settings", dependencies=[Depends(require_basic_auth)])
 def update_settings(stale_backup_days: int = Form(3)):
-    with get_db() as conn:
-        conn.execute("UPDATE settings SET stale_backup_days = ? WHERE id = 1", (stale_backup_days,))
-    return RedirectResponse("/settings", status_code=HTTP_303_SEE_OTHER)
+    with get_db(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE settings SET stale_backup_days = ? WHERE id = 1",
+            (stale_backup_days,),
+        )
+    return RedirectResponse("/settings?notice=settings_saved", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.get("/health")

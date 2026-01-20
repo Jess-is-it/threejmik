@@ -7,9 +7,14 @@
       <div class="text-secondary">{{ router.branch_name }} • {{ router.ip }}:{{ router.api_port }}</div>
     </div>
     <div class="col-auto ms-auto">
-      <form method="post" action="/routers/{{ router.id }}/test">
-        <button class="btn btn-outline-secondary" type="submit">Test Connection</button>
-      </form>
+      <div class="btn-list">
+        <form method="post" action="/routers/{{ router.id }}/test">
+          <button class="btn btn-outline-secondary" type="submit">Test Connection</button>
+        </form>
+        <form method="post" action="/routers/{{ router.id }}/backup">
+          <button class="btn btn-primary" type="submit">Run Backup</button>
+        </form>
+      </div>
     </div>
   </div>
 </div>
@@ -29,7 +34,7 @@
           <tbody>
             {% for backup in backups %}
             <tr>
-              <td>{{ backup.created_at }}</td>
+              <td><a href="/routers/{{ router.id }}?backup_id={{ backup.id }}">{{ backup.created_at }}</a></td>
               <td>{{ backup.rsc_hash if backup.rsc_hash else "-" }}</td>
               <td>
                 {% if backup.backup_link %}<a href="{{ backup.backup_link }}">.backup</a>{% endif %}
@@ -46,11 +51,17 @@
   </div>
   <div class="col-lg-5">
     <div class="card">
-      <div class="card-header"><h3 class="card-title">Latest Change Summary</h3></div>
+      <div class="card-header"><h3 class="card-title">Change Summary</h3></div>
       <div class="card-body">
-        {% if backups and backups[0].change_summary %}
-        <p>{{ backups[0].change_summary }}</p>
-        <pre class="text-secondary">{{ backups[0].logs }}</pre>
+        {% if selected and selected.change_summary %}
+        <p>{{ selected.change_summary }}</p>
+        <div class="text-secondary mb-2">Hash: {{ selected.rsc_hash }}</div>
+        {% if logs %}
+        <pre class="text-secondary">{% for entry in logs %}{{ entry.logged_at }} {{ entry.topics }} {{ entry.message }}
+{% endfor %}</pre>
+        {% else %}
+        <div class="text-secondary">No logs recorded for this backup.</div>
+        {% endif %}
         {% else %}
         <div class="text-secondary">No change logs captured yet.</div>
         {% endif %}

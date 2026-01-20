@@ -24,14 +24,24 @@
       </thead>
       <tbody>
         {% for router in routers %}
+        {% set links = parse_links(router.last_backup_links) %}
         <tr>
           <td><a href="/routers/{{ router.id }}">{{ router.name }}</a></td>
           <td>{{ router.branch_name }}</td>
           <td>{{ format_ts(router.last_backup_at) }}</td>
-          <td>{{ format_ts(router.last_success_at) }}</td>
+          <td>
+            {{ format_ts(router.last_success_at) }}
+            {% if is_stale(router.last_success_at) %}
+            <span class="badge bg-red">Stale</span>
+            {% endif %}
+          </td>
           <td>{{ router.last_error if router.last_error else "-" }}</td>
           <td>{{ format_ts(router.last_config_change_at) }}</td>
-          <td>{{ router.last_backup_links if router.last_backup_links else "-" }}</td>
+          <td>
+            {% if links.backup %}<a href="{{ links.backup }}">.backup</a>{% endif %}
+            {% if links.rsc %}<a href="{{ links.rsc }}">.rsc</a>{% endif %}
+            {% if not links.backup and not links.rsc %}-{% endif %}
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-secondary">No routers registered yet.</td></tr>

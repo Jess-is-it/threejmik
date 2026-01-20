@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Edit Router</h2>
+      <div class="text-secondary">Update RouterOS credentials and schedules.</div>
+    </div>
+  </div>
+</div>
+<form class="card" method="post" action="/routers/{{ router.id }}">
+  <div class="card-body">
+    <div class="mb-3">
+      <label class="form-label">Branch</label>
+      <select class="form-select" name="branch_id" required>
+        {% for branch in branches %}
+        <option value="{{ branch.id }}" {% if branch.id == router.branch_id %}selected{% endif %}>{{ branch.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Router Name</label>
+      <input class="form-control" name="name" value="{{ router.name }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">IP</label>
+      <input class="form-control" name="ip" value="{{ router.ip }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">API Port</label>
+      <input class="form-control" type="number" name="api_port" value="{{ router.api_port }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Username</label>
+      <input class="form-control" name="username" value="{{ router.username }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password (leave blank to keep)</label>
+      <input class="form-control" name="password" type="password">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Backup Check Interval (hours)</label>
+      <input class="form-control" type="number" name="backup_check_interval_hours" value="{{ router.backup_check_interval_hours }}" min="1">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Daily Baseline Time</label>
+      <input class="form-control" name="daily_baseline_time" value="{{ router.daily_baseline_time }}" placeholder="HH:MM">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Force Backup Every (days)</label>
+      <input class="form-control" type="number" name="force_backup_every_days" value="{{ router.force_backup_every_days }}" min="1">
+    </div>
+    <div class="mb-3">
+      <label class="form-check">
+        <input class="form-check-input" type="checkbox" name="enabled" {% if router.enabled %}checked{% endif %}>
+        <span class="form-check-label">Enabled</span>
+      </label>
+    </div>
+  </div>
+  <div class="card-footer text-end">
+    <a class="btn btn-outline-secondary" href="/routers">Back</a>
+    <button class="btn btn-primary" type="submit">Save Changes</button>
+  </div>
+</form>
+{% endblock %}

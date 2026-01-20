@@ -44,6 +44,8 @@ The database will persist at `./data/routervault.db` via the compose volume.
 ```
 app/
   main.py
+  db.py
+  services/
   templates/
   static/
     tabler/
@@ -59,7 +61,11 @@ docker-compose.yml
 - `ROUTERVAULT_DB_PATH` (default `/data/routervault.db`)
 - `ROUTERVAULT_GOOGLE_CREDENTIALS`
 - `ROUTERVAULT_TELEGRAM_TOKEN`
+- `ROUTERVAULT_MOCK_MODE` (true/false)
+- `ROUTERVAULT_SCHEDULER_INTERVAL` (seconds)
+- `ROUTERVAULT_LOG_KEYWORDS` (comma-separated)
 
 ## Notes
 - Router passwords are encrypted at rest in SQLite using `ROUTERVAULT_ENCRYPTION_KEY`.
-- The UI includes branches, routers, backups, and settings pages with stubbed test actions.
+- Background scheduler runs periodic router checks and baseline checks.
+- In mock mode, MikroTik operations are simulated for UI testing.

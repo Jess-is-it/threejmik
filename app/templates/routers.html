@@ -87,6 +87,7 @@
               <td>{{ router.ip }}:{{ router.api_port }}</td>
               <td>{{ router.backup_check_interval_hours }}h / {{ router.daily_baseline_time }}</td>
               <td class="text-end">
+                <a class="btn btn-outline-primary btn-sm" href="/routers/{{ router.id }}/edit">Edit</a>
                 <form method="post" action="/routers/{{ router.id }}/test" class="d-inline">
                   <button class="btn btn-outline-secondary btn-sm" type="submit">Test Connection</button>
                 </form>

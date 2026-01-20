@@ -14,6 +14,8 @@
       <label class="form-label">Stale Backup Alert (days)</label>
       <input class="form-control" type="number" name="stale_backup_days" min="1" value="{{ settings.stale_backup_days }}">
     </div>
+    <div class="text-secondary">Scheduler interval is configured via ROUTERVAULT_SCHEDULER_INTERVAL.</div>
+    <div class="text-secondary">Last scheduler run: {{ settings.last_scheduler_run if settings.last_scheduler_run else "-" }}</div>
   </div>
   <div class="card-footer text-end">
     <button class="btn btn-primary" type="submit">Save Settings</button>

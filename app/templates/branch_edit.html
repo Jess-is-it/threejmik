@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Edit Branch</h2>
+      <div class="text-secondary">Update franchisee and retention settings.</div>
+    </div>
+  </div>
+</div>
+<form class="card" method="post" action="/branches/{{ branch.id }}">
+  <div class="card-body">
+    <div class="mb-3">
+      <label class="form-label">Name</label>
+      <input class="form-control" name="name" value="{{ branch.name }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Franchisee Emails</label>
+      <input class="form-control" name="franchisee_emails" value="{{ branch.franchisee_emails }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Drive Folder ID</label>
+      <input class="form-control" name="drive_folder_id" value="{{ branch.drive_folder_id }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Drive Folder Link</label>
+      <input class="form-control" name="drive_folder_link" value="{{ branch.drive_folder_link }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Retention Days</label>
+      <input class="form-control" type="number" name="retention_days" min="1" value="{{ branch.retention_days }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Telegram Recipients</label>
+      <input class="form-control" name="telegram_recipients" value="{{ branch.telegram_recipients }}">
+    </div>
+  </div>
+  <div class="card-footer text-end">
+    <a class="btn btn-outline-secondary" href="/branches">Back</a>
+    <button class="btn btn-primary" type="submit">Save Changes</button>
+  </div>
+</form>
+{% endblock %}

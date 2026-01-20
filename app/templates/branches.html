@@ -62,9 +62,16 @@
             <tr>
               <td>{{ branch.name }}</td>
               <td>{{ branch.retention_days }} days</td>
-              <td>{{ branch.drive_folder_link if branch.drive_folder_link else "-" }}</td>
+              <td>
+                {% if branch.drive_folder_link %}
+                <a href="{{ branch.drive_folder_link }}">Folder</a>
+                {% else %}
+                -
+                {% endif %}
+              </td>
               <td>{{ branch.telegram_recipients if branch.telegram_recipients else "-" }}</td>
               <td class="text-end">
+                <a class="btn btn-outline-primary btn-sm" href="/branches/{{ branch.id }}">Edit</a>
                 <form method="post" action="/branches/{{ branch.id }}/test-drive" class="d-inline">
                   <button class="btn btn-outline-secondary btn-sm" type="submit">Test Drive</button>
                 </form>
