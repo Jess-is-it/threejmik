@@ -70,15 +70,15 @@ def is_stale(last_success: Optional[str], stale_days: int) -> bool:
 
 def parse_links(raw: Optional[str]) -> dict:
     if not raw:
-    return {}
-
-
-def quote_message(message: str) -> str:
-    return quote(str(message))
+        return {}
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return {}
+
+
+def quote_message(message: str) -> str:
+    return quote(str(message))
 
 
 @app.get("/", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)

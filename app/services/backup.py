@@ -114,8 +114,8 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
         rsc_bytes = client.create_rsc_file(rsc_name)
 
         if settings.mock_mode and not settings.google_credentials:
-            backup_link = f\"mock://drive/{backup_name}\"
-            rsc_link = f\"mock://drive/{rsc_name}\"
+            backup_link = f"mock://drive/{backup_name}"
+            rsc_link = f"mock://drive/{rsc_name}"
         else:
             drive_service = get_drive_service()
             branch_id, branch_link, backups_id, rsc_id = ensure_branch_folders(
