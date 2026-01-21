@@ -4,12 +4,15 @@
   <div class="row align-items-center">
     <div class="col">
       <h2 class="page-title">{{ router.name }}</h2>
-      <div class="text-secondary">{{ router.branch_name }} • {{ router.ip }}:{{ router.api_port }}</div>
+      <div class="text-secondary">{{ router.ip }}:{{ router.api_port }}</div>
     </div>
     <div class="col-auto ms-auto">
       <div class="btn-list">
         <form method="post" action="/routers/{{ router.id }}/test">
           <button class="btn btn-outline-secondary" type="submit">Test Connection</button>
+        </form>
+        <form method="post" action="/routers/{{ router.id }}/test-telegram">
+          <button class="btn btn-outline-secondary" type="submit">Test Telegram</button>
         </form>
         <form method="post" action="/routers/{{ router.id }}/backup">
           <button class="btn btn-primary" type="submit">Run Backup</button>

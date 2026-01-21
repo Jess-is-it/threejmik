@@ -14,16 +14,32 @@ except ImportError:  # pragma: no cover
 
 
 class MikroTikClient:
-    def __init__(self, host: str, port: int, username: str, password: str):
+    def __init__(self, host: str, port: int, username: str, password: str, timeout: int = 5, ftp_port: int = 21):
         self.host = host
         self.port = port
         self.username = username
         self.password = password
+        self.timeout = timeout
+        self.ftp_port = ftp_port
 
     def _connect(self):
         if connect is None:
             raise RuntimeError("librouteros is not installed")
-        return connect(host=self.host, username=self.username, password=self.password, port=self.port)
+        try:
+            return connect(
+                host=self.host,
+                username=self.username,
+                password=self.password,
+                port=self.port,
+                timeout=self.timeout,
+            )
+        except TypeError:
+            return connect(
+                host=self.host,
+                username=self.username,
+                password=self.password,
+                port=self.port,
+            )
 
     def test_connection(self) -> Tuple[bool, str]:
         if settings.mock_mode:
@@ -83,7 +99,7 @@ class MikroTikClient:
 
     def _download_file(self, filename: str) -> bytes:
         with FTP() as ftp:
-            ftp.connect(self.host, 21, timeout=10)
+            ftp.connect(self.host, self.ftp_port, timeout=10)
             ftp.login(self.username, self.password)
             buffer = io.BytesIO()
             ftp.retrbinary(f"RETR {filename}", buffer.write)
@@ -92,6 +108,17 @@ class MikroTikClient:
             except Exception:
                 pass
             return buffer.getvalue()
+
+    def restore_backup(self, backup_name: str, content: bytes) -> None:
+        if settings.mock_mode:
+            return
+        with FTP() as ftp:
+            ftp.connect(self.host, self.ftp_port, timeout=10)
+            ftp.login(self.username, self.password)
+            ftp.storbinary(f"STOR {backup_name}", io.BytesIO(content))
+        api = self._connect()
+        base_name = backup_name[:-7] if backup_name.endswith(".backup") else backup_name
+        api("/system/backup/load", name=base_name)
 
 
 def normalize_export(text: str) -> str:

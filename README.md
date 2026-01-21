@@ -1,6 +1,6 @@
 # RouterVault
 
-RouterVault is an auto-backup system for MikroTik RouterOS v7 with Google Drive storage, retention, Telegram notifications, config-change detection (hash + logs), and a server-rendered web UI.
+RouterVault is an auto-backup system for MikroTik RouterOS v7 with local storage, retention, Telegram notifications, config-change detection (hash + logs), and a server-rendered web UI.
 
 ## Tech Stack
 - Python 3.11
@@ -8,6 +8,7 @@ RouterVault is an auto-backup system for MikroTik RouterOS v7 with Google Drive 
 - Jinja2 templates (server-rendered HTML)
 - Tabler UI kit (local assets)
 - SQLite persisted to `/data/routervault.db`
+- Backups persisted to `/data/storage`
 
 ## Local Development
 
@@ -18,12 +19,10 @@ RouterVault is an auto-backup system for MikroTik RouterOS v7 with Google Drive 
    pip install -r requirements.txt
    ```
 
-2. Create `.env` from `.env.example` and set a strong encryption key:
+2. Create `.env` from `.env.example`:
    ```bash
    cp .env.example .env
-   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
-   Paste the generated key into `ROUTERVAULT_ENCRYPTION_KEY`.
 
 3. Run the server:
    ```bash
@@ -57,15 +56,14 @@ docker-compose.yml
 ## Environment Variables
 - `ROUTERVAULT_BASIC_USER`
 - `ROUTERVAULT_BASIC_PASSWORD`
-- `ROUTERVAULT_ENCRYPTION_KEY`
 - `ROUTERVAULT_DB_PATH` (default `/data/routervault.db`)
-- `ROUTERVAULT_GOOGLE_CREDENTIALS`
 - `ROUTERVAULT_TELEGRAM_TOKEN`
 - `ROUTERVAULT_MOCK_MODE` (true/false)
 - `ROUTERVAULT_SCHEDULER_INTERVAL` (seconds)
 - `ROUTERVAULT_LOG_KEYWORDS` (comma-separated)
+- `ROUTERVAULT_STORAGE_PATH` (default `/data/storage`)
 
 ## Notes
-- Router passwords are encrypted at rest in SQLite using `ROUTERVAULT_ENCRYPTION_KEY`.
+- Backups are stored per router at `/data/storage/<RouterName>/`.
 - Background scheduler runs periodic router checks and baseline checks.
 - In mock mode, MikroTik operations are simulated for UI testing.

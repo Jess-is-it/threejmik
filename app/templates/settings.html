@@ -8,17 +8,33 @@
     </div>
   </div>
 </div>
-<form class="card" method="post" action="/settings">
-  <div class="card-body">
-    <div class="mb-3">
-      <label class="form-label">Stale Backup Alert (days)</label>
-      <input class="form-control" type="number" name="stale_backup_days" min="1" value="{{ settings.stale_backup_days }}">
+<form method="post" action="/settings">
+  <div class="card mb-4">
+    <div class="card-header"><h3 class="card-title">Monitoring</h3></div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Stale Backup Alert (days)</label>
+        <input class="form-control" type="number" name="stale_backup_days" min="1" value="{{ settings.stale_backup_days }}">
+      </div>
+      <div class="text-secondary">Scheduler interval is configured via ROUTERVAULT_SCHEDULER_INTERVAL.</div>
+      <div class="text-secondary">Last scheduler run: {{ settings.last_scheduler_run if settings.last_scheduler_run else "-" }}</div>
     </div>
-    <div class="text-secondary">Scheduler interval is configured via ROUTERVAULT_SCHEDULER_INTERVAL.</div>
-    <div class="text-secondary">Last scheduler run: {{ settings.last_scheduler_run if settings.last_scheduler_run else "-" }}</div>
   </div>
-  <div class="card-footer text-end">
-    <button class="btn btn-primary" type="submit">Save Settings</button>
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Telegram</h3></div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Bot Token</label>
+        <input class="form-control" name="telegram_token" value="{{ settings.telegram_token or '' }}" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Chat ID</label>
+        <input class="form-control" name="telegram_recipients" value="{{ settings.telegram_recipients or '' }}" placeholder="-1001234567890">
+      </div>
+    </div>
+    <div class="card-footer text-end">
+      <button class="btn btn-primary" type="submit">Save Settings</button>
+    </div>
   </div>
 </form>
 {% endblock %}

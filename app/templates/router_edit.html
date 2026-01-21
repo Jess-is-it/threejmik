@@ -11,14 +11,6 @@
 <form class="card" method="post" action="/routers/{{ router.id }}">
   <div class="card-body">
     <div class="mb-3">
-      <label class="form-label">Branch</label>
-      <select class="form-select" name="branch_id" required>
-        {% for branch in branches %}
-        <option value="{{ branch.id }}" {% if branch.id == router.branch_id %}selected{% endif %}>{{ branch.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="mb-3">
       <label class="form-label">Router Name</label>
       <input class="form-control" name="name" value="{{ router.name }}" required>
     </div>
@@ -31,12 +23,28 @@
       <input class="form-control" type="number" name="api_port" value="{{ router.api_port }}">
     </div>
     <div class="mb-3">
+      <label class="form-label">API Timeout (seconds)</label>
+      <input class="form-control" type="number" name="api_timeout_seconds" value="{{ router.api_timeout_seconds }}" min="1">
+    </div>
+    <div class="mb-3">
       <label class="form-label">Username</label>
       <input class="form-control" name="username" value="{{ router.username }}" required>
     </div>
     <div class="mb-3">
       <label class="form-label">Password (leave blank to keep)</label>
       <input class="form-control" name="password" type="password">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">FTP Port</label>
+      <input class="form-control" type="number" name="ftp_port" value="{{ router.ftp_port }}" min="1">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Retention Days</label>
+      <input class="form-control" type="number" name="retention_days" value="{{ router.retention_days }}" min="1">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Telegram Recipients</label>
+      <input class="form-control" name="telegram_recipients" value="{{ router.telegram_recipients }}">
     </div>
     <div class="mb-3">
       <label class="form-label">Backup Check Interval (hours)</label>

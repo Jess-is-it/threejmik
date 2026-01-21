@@ -8,101 +8,111 @@
     </div>
   </div>
 </div>
-<div class="row">
-  <div class="col-lg-5">
-    <form class="card" method="post" action="/routers">
-      <div class="card-header"><h3 class="card-title">Add Router</h3></div>
-      <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">Branch</label>
-          <select class="form-select" name="branch_id" required>
-            {% for branch in branches %}
-            <option value="{{ branch.id }}">{{ branch.name }}</option>
-            {% endfor %}
-          </select>
+<ul class="nav nav-tabs mb-3" data-bs-toggle="tabs">
+  <li class="nav-item">
+    <a href="#tab-add" class="nav-link active" data-bs-toggle="tab">Add Router</a>
+  </li>
+  <li class="nav-item">
+    <a href="#tab-presets" class="nav-link" data-bs-toggle="tab">Router Presets</a>
+  </li>
+</ul>
+<div class="tab-content">
+  <div class="tab-pane active show" id="tab-add">
+    <form method="post" action="/routers">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Add Router</h3></div>
+        <div class="table-responsive">
+          <table class="table card-table table-vcenter">
+            <thead>
+              <tr>
+                <th>Router Name</th>
+                <th>IP</th>
+                <th>API Port</th>
+                <th>API Timeout</th>
+                <th>Username</th>
+                <th>Password</th>
+                <th>FTP Port</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input class="form-control" name="name" required></td>
+                <td><input class="form-control" name="ip" required></td>
+                <td><input class="form-control" type="number" name="api_port" value="8728"></td>
+                <td><input class="form-control" type="number" name="api_timeout_seconds" value="5" min="1"></td>
+                <td><input class="form-control" name="username" required></td>
+                <td><input class="form-control" name="password" type="password" required></td>
+                <td><input class="form-control" type="number" name="ftp_port" value="21" min="1"></td>
+                <td>
+                  <button class="btn btn-outline-primary btn-sm" type="submit" formmethod="post" formaction="/routers/test-draft" formnovalidate>Test API</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Router Name</label>
-          <input class="form-control" name="name" required>
+        <input type="hidden" name="enabled" value="1">
+        <div class="card-footer text-end">
+          <button class="btn btn-primary" type="submit">Create Router</button>
         </div>
-        <div class="mb-3">
-          <label class="form-label">IP</label>
-          <input class="form-control" name="ip" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">API Port</label>
-          <input class="form-control" type="number" name="api_port" value="8728">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Username</label>
-          <input class="form-control" name="username" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Password</label>
-          <input class="form-control" name="password" type="password" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Backup Check Interval (hours)</label>
-          <input class="form-control" type="number" name="backup_check_interval_hours" value="6" min="1">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Daily Baseline Time</label>
-          <input class="form-control" name="daily_baseline_time" value="02:00" placeholder="HH:MM">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Force Backup Every (days)</label>
-          <input class="form-control" type="number" name="force_backup_every_days" value="7" min="1">
-        </div>
-        <div class="mb-3">
-          <label class="form-check">
-            <input class="form-check-input" type="checkbox" name="enabled" checked>
-            <span class="form-check-label">Enabled</span>
-          </label>
-        </div>
-      </div>
-      <div class="card-footer text-end">
-        <button class="btn btn-primary" type="submit">Create Router</button>
       </div>
     </form>
   </div>
-  <div class="col-lg-7">
-    <div class="card">
-      <div class="card-header"><h3 class="card-title">Current Routers</h3></div>
-      <div class="table-responsive">
-        <table class="table card-table table-vcenter">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Branch</th>
-              <th>IP</th>
-              <th>Schedule</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for router in routers %}
-            <tr>
-              <td><a href="/routers/{{ router.id }}">{{ router.name }}</a></td>
-              <td>{{ router.branch_name }}</td>
-              <td>{{ router.ip }}:{{ router.api_port }}</td>
-              <td>{{ router.backup_check_interval_hours }}h / {{ router.daily_baseline_time }}</td>
-              <td class="text-end">
-                <a class="btn btn-outline-primary btn-sm" href="/routers/{{ router.id }}/edit">Edit</a>
-                <form method="post" action="/routers/{{ router.id }}/test" class="d-inline">
-                  <button class="btn btn-outline-secondary btn-sm" type="submit">Test Connection</button>
-                </form>
-                <form method="post" action="/routers/{{ router.id }}/delete" class="d-inline" onsubmit="return confirm('Delete router?');">
-                  <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5" class="text-secondary">No routers yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div class="tab-pane" id="tab-presets">
+    <form method="post" action="/routers/presets">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Router Presets</h3></div>
+        <div class="table-responsive">
+          <table class="table card-table table-vcenter">
+            <thead>
+              <tr>
+                <th>Router</th>
+                <th>Retention Days</th>
+                <th>Backup Check Interval</th>
+                <th>Daily Baseline Time</th>
+                <th>Force Backup Every</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for router in routers %}
+              <tr>
+                <td>
+                  <div class="fw-bold"><a href="/routers/{{ router.id }}">{{ router.name }}</a></div>
+                  <input type="hidden" name="router_id_{{ router.id }}" value="{{ router.id }}">
+                </td>
+                <td><input class="form-control" type="number" name="retention_days_{{ router.id }}" value="{{ router.retention_days }}" min="1"></td>
+                <td><input class="form-control" type="number" name="backup_check_interval_hours_{{ router.id }}" value="{{ router.backup_check_interval_hours }}" min="1"></td>
+                <td><input class="form-control" name="daily_baseline_time_{{ router.id }}" value="{{ router.daily_baseline_time }}" placeholder="HH:MM"></td>
+                <td><input class="form-control" type="number" name="force_backup_every_days_{{ router.id }}" value="{{ router.force_backup_every_days }}" min="1"></td>
+                <td>
+                  <label class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="enabled_{{ router.id }}" value="1" {% if router.enabled %}checked{% endif %}>
+                    <span class="form-check-label">Enable</span>
+                  </label>
+                  <label class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="enabled_{{ router.id }}" value="0" {% if not router.enabled %}checked{% endif %}>
+                    <span class="form-check-label">Disable</span>
+                  </label>
+                </td>
+                <td>
+                  <button class="btn btn-outline-primary btn-sm" type="submit" formmethod="post" formaction="/routers/{{ router.id }}/test" formnovalidate>Test API</button>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="7" class="text-secondary">Please add router first.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="card-footer text-end">
+          <button class="btn btn-primary" type="submit">Save Presets</button>
+        </div>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 {% endblock %}

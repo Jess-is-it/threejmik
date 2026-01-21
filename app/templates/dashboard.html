@@ -14,7 +14,6 @@
       <thead>
         <tr>
           <th>Router</th>
-          <th>Branch</th>
           <th>Last Backup</th>
           <th>Last Success</th>
           <th>Last Error</th>
@@ -27,7 +26,6 @@
         {% set links = parse_links(router.last_backup_links) %}
         <tr>
           <td><a href="/routers/{{ router.id }}">{{ router.name }}</a></td>
-          <td>{{ router.branch_name }}</td>
           <td>{{ format_ts(router.last_backup_at) }}</td>
           <td>
             {{ format_ts(router.last_success_at) }}
@@ -44,7 +42,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-secondary">No routers registered yet.</td></tr>
+        <tr><td colspan="6" class="text-secondary">No routers registered yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

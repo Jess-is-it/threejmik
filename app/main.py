@@ -15,8 +15,6 @@ from starlette.status import HTTP_303_SEE_OTHER
 from app.db import get_db, init_db, utcnow
 from app.services.backup import run_router_check
 from app.services.config import settings
-from app.services.crypto import decrypt_secret, encrypt_secret
-from app.services.drive import get_drive_service
 from app.services.mikrotik import MikroTikClient, check_port
 from app.services.scheduler import scheduler, start_scheduler
 from app.services.telegram import send_message
@@ -26,6 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="RouterVault")
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+settings.storage_path.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storage")
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 security = HTTPBasic()
@@ -86,10 +86,9 @@ def dashboard(request: Request):
     with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
-            SELECT routers.*, branches.name AS branch_name
+            SELECT *
             FROM routers
-            JOIN branches ON branches.id = routers.branch_id
-            ORDER BY routers.created_at DESC
+            ORDER BY created_at DESC
             """
         ).fetchall()
         settings_row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
@@ -110,163 +109,155 @@ def dashboard(request: Request):
     )
 
 
-@app.get("/branches", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
-def list_branches(request: Request):
-    with get_db(settings.db_path) as conn:
-        branches = conn.execute("SELECT * FROM branches ORDER BY name").fetchall()
-    return templates.TemplateResponse(
-        "branches.html",
-        {
-            "request": request,
-            "app_name": "RouterVault",
-            "branches": branches,
-            "notice": request.query_params.get("notice"),
-            "error": request.query_params.get("error"),
-        },
-    )
-
-
-@app.get("/branches/{branch_id}", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
-def edit_branch(request: Request, branch_id: int):
-    with get_db(settings.db_path) as conn:
-        branch = conn.execute("SELECT * FROM branches WHERE id = ?", (branch_id,)).fetchone()
-    if not branch:
-        raise HTTPException(status_code=404, detail="Branch not found")
-    return templates.TemplateResponse(
-        "branch_edit.html",
-        {
-            "request": request,
-            "app_name": "RouterVault",
-            "branch": branch,
-            "notice": request.query_params.get("notice"),
-            "error": request.query_params.get("error"),
-        },
-    )
-
-
-@app.post("/branches", dependencies=[Depends(require_basic_auth)])
-def create_branch(
-    name: str = Form(...),
-    franchisee_emails: str = Form(""),
-    drive_folder_id: str = Form(""),
-    drive_folder_link: str = Form(""),
-    retention_days: int = Form(30),
-    telegram_recipients: str = Form(""),
-):
-    now = utcnow()
-    with get_db(settings.db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO branches
-            (name, franchisee_emails, drive_folder_id, drive_folder_link, retention_days, telegram_recipients, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                name,
-                franchisee_emails,
-                drive_folder_id,
-                drive_folder_link,
-                retention_days,
-                telegram_recipients,
-                now,
-                now,
-            ),
-        )
-    return RedirectResponse("/branches?notice=branch_created", status_code=HTTP_303_SEE_OTHER)
-
-
-@app.post("/branches/{branch_id}", dependencies=[Depends(require_basic_auth)])
-def update_branch(
-    branch_id: int,
-    name: str = Form(...),
-    franchisee_emails: str = Form(""),
-    drive_folder_id: str = Form(""),
-    drive_folder_link: str = Form(""),
-    retention_days: int = Form(30),
-    telegram_recipients: str = Form(""),
-):
-    with get_db(settings.db_path) as conn:
-        conn.execute(
-            """
-            UPDATE branches
-            SET name = ?, franchisee_emails = ?, drive_folder_id = ?, drive_folder_link = ?,
-                retention_days = ?, telegram_recipients = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                name,
-                franchisee_emails,
-                drive_folder_id,
-                drive_folder_link,
-                retention_days,
-                telegram_recipients,
-                utcnow(),
-                branch_id,
-            ),
-        )
-    return RedirectResponse(f"/branches/{branch_id}?notice=branch_updated", status_code=HTTP_303_SEE_OTHER)
-
-
-@app.post("/branches/{branch_id}/delete", dependencies=[Depends(require_basic_auth)])
-def delete_branch(branch_id: int):
-    with get_db(settings.db_path) as conn:
-        conn.execute("DELETE FROM branches WHERE id = ?", (branch_id,))
-    return RedirectResponse("/branches?notice=branch_deleted", status_code=HTTP_303_SEE_OTHER)
-
-
-@app.post("/branches/{branch_id}/test-drive", dependencies=[Depends(require_basic_auth)])
-def test_drive(branch_id: int):
-    try:
-        if not settings.mock_mode:
-            get_drive_service()
-        return RedirectResponse(f"/branches/{branch_id}?notice=drive_ok", status_code=HTTP_303_SEE_OTHER)
-    except Exception as exc:
-        return RedirectResponse(
-            f"/branches/{branch_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
-        )
-
-
-@app.post("/branches/{branch_id}/test-telegram", dependencies=[Depends(require_basic_auth)])
-def test_telegram(branch_id: int):
-    try:
-        with get_db(settings.db_path) as conn:
-            branch = conn.execute("SELECT * FROM branches WHERE id = ?", (branch_id,)).fetchone()
-        if not branch:
-            raise RuntimeError("Branch not found")
-        recipients = [r.strip() for r in (branch["telegram_recipients"] or "").split(",") if r.strip()]
-        if not recipients:
-            raise RuntimeError("No telegram recipients set")
-        send_message(recipients, "RouterVault test message")
-        return RedirectResponse(f"/branches/{branch_id}?notice=telegram_ok", status_code=HTTP_303_SEE_OTHER)
-    except Exception as exc:
-        return RedirectResponse(
-            f"/branches/{branch_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
-        )
-
-
 @app.get("/routers", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def list_routers(request: Request):
     with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
-            SELECT routers.*, branches.name AS branch_name
+            SELECT *
             FROM routers
-            JOIN branches ON branches.id = routers.branch_id
-            ORDER BY routers.created_at DESC
+            ORDER BY created_at DESC
             """
         ).fetchall()
-        branches = conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
     return templates.TemplateResponse(
         "routers.html",
         {
             "request": request,
             "app_name": "RouterVault",
             "routers": routers,
-            "branches": branches,
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
         },
     )
+
+
+@app.get("/backups", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
+def list_backups(request: Request):
+    with get_db(settings.db_path) as conn:
+        backups = conn.execute(
+            """
+            SELECT backups.*, routers.name AS router_name, routers.ip, routers.api_port
+            FROM backups
+            JOIN routers ON routers.id = backups.router_id
+            ORDER BY backups.created_at DESC
+            """
+        ).fetchall()
+    parsed = []
+    for backup in backups:
+        logs_text = ""
+        if backup["logs"]:
+            try:
+                entries = json.loads(backup["logs"])
+                logs_text = "\n".join(
+                    f"{entry.get('logged_at','')} {entry.get('topics','')} {entry.get('message','')}"
+                    for entry in entries
+                )
+            except json.JSONDecodeError:
+                logs_text = backup["logs"]
+        parsed.append({**dict(backup), "logs_text": logs_text})
+    return templates.TemplateResponse(
+        "backups.html",
+        {
+            "request": request,
+            "app_name": "RouterVault",
+            "backups": parsed,
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+def _link_to_path(link: str) -> Path:
+    if not link or not link.startswith("/storage/"):
+        return Path()
+    relative = link[len("/storage/") :]
+    return settings.storage_path / relative
+
+
+@app.post("/backups/{backup_id}/delete", dependencies=[Depends(require_basic_auth)])
+def delete_backup(backup_id: int):
+    with get_db(settings.db_path) as conn:
+        backup = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+        if not backup:
+            raise HTTPException(status_code=404, detail="Backup not found")
+        backup_path = _link_to_path(backup["backup_link"] or "")
+        rsc_path = _link_to_path(backup["rsc_link"] or "")
+        if backup_path.exists():
+            backup_path.unlink()
+        if rsc_path.exists():
+            rsc_path.unlink()
+        conn.execute("DELETE FROM backups WHERE id = ?", (backup_id,))
+    return RedirectResponse("/backups?notice=backup_deleted", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/backups/{backup_id}/restore", dependencies=[Depends(require_basic_auth)])
+def restore_backup(backup_id: int):
+    with get_db(settings.db_path) as conn:
+        backup = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+        if not backup:
+            raise HTTPException(status_code=404, detail="Backup not found")
+        router = conn.execute("SELECT * FROM routers WHERE id = ?", (backup["router_id"],)).fetchone()
+    if not router:
+        raise HTTPException(status_code=404, detail="Router not found")
+    backup_path = _link_to_path(backup["backup_link"] or "")
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup file missing")
+    try:
+        client = MikroTikClient(
+            host=router["ip"],
+            port=router["api_port"],
+            timeout=router.get("api_timeout_seconds") or 5,
+            username=router["username"],
+            password=router["encrypted_password"],
+            ftp_port=router.get("ftp_port") or 21,
+        )
+        client.restore_backup(backup_path.name, backup_path.read_bytes())
+        return RedirectResponse("/backups?notice=restore_started", status_code=HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        return RedirectResponse(f"/backups?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/routers/presets", dependencies=[Depends(require_basic_auth)])
+async def update_router_presets(request: Request):
+    form = await request.form()
+    updates = []
+    for key, value in form.items():
+        if not key.startswith("router_id_"):
+            continue
+        router_id = int(value)
+        retention_days = int(form.get(f"retention_days_{router_id}", 30))
+        backup_check_interval_hours = int(form.get(f"backup_check_interval_hours_{router_id}", 6))
+        daily_baseline_time = form.get(f"daily_baseline_time_{router_id}", "02:00")
+        force_backup_every_days = int(form.get(f"force_backup_every_days_{router_id}", 7))
+        enabled_value = form.get(f"enabled_{router_id}", "1")
+        enabled = 1 if enabled_value == "1" else 0
+        updates.append(
+            (
+                retention_days,
+                backup_check_interval_hours,
+                daily_baseline_time,
+                force_backup_every_days,
+                enabled,
+                utcnow(),
+                router_id,
+            )
+        )
+    if updates:
+        with get_db(settings.db_path) as conn:
+            conn.executemany(
+                """
+                UPDATE routers
+                SET retention_days = ?,
+                    backup_check_interval_hours = ?,
+                    daily_baseline_time = ?,
+                    force_backup_every_days = ?,
+                    enabled = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                updates,
+            )
+    return RedirectResponse("/routers?notice=presets_saved", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.get("/routers/{router_id}", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
@@ -274,10 +265,9 @@ def router_detail(request: Request, router_id: int, backup_id: Optional[int] = N
     with get_db(settings.db_path) as conn:
         router = conn.execute(
             """
-            SELECT routers.*, branches.name AS branch_name
+            SELECT *
             FROM routers
-            JOIN branches ON branches.id = routers.branch_id
-            WHERE routers.id = ?
+            WHERE id = ?
             """,
             (router_id,),
         ).fetchone()
@@ -321,7 +311,6 @@ def router_detail(request: Request, router_id: int, backup_id: Optional[int] = N
 def edit_router(request: Request, router_id: int):
     with get_db(settings.db_path) as conn:
         router = conn.execute("SELECT * FROM routers WHERE id = ?", (router_id,)).fetchone()
-        branches = conn.execute("SELECT id, name FROM branches ORDER BY name").fetchall()
     if not router:
         raise HTTPException(status_code=404, detail="Router not found")
     return templates.TemplateResponse(
@@ -330,7 +319,6 @@ def edit_router(request: Request, router_id: int):
             "request": request,
             "app_name": "RouterVault",
             "router": router,
-            "branches": branches,
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
         },
@@ -339,12 +327,14 @@ def edit_router(request: Request, router_id: int):
 
 @app.post("/routers", dependencies=[Depends(require_basic_auth)])
 def create_router(
-    branch_id: int = Form(...),
     name: str = Form(...),
     ip: str = Form(...),
     api_port: int = Form(8728),
+    api_timeout_seconds: int = Form(5),
     username: str = Form(...),
     password: str = Form(...),
+    ftp_port: int = Form(21),
+    retention_days: int = Form(30),
     enabled: Optional[str] = Form(None),
     backup_check_interval_hours: int = Form(6),
     daily_baseline_time: str = Form("02:00"),
@@ -355,22 +345,24 @@ def create_router(
         conn.execute(
             """
             INSERT INTO routers
-            (branch_id, name, ip, api_port, username, encrypted_password, enabled,
+            (name, ip, api_port, api_timeout_seconds, username, encrypted_password, ftp_port, enabled,
              backup_check_interval_hours, daily_baseline_time, force_backup_every_days,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             retention_days, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                branch_id,
                 name,
                 ip,
                 api_port,
+                api_timeout_seconds,
                 username,
-                encrypt_secret(password),
+                password,
+                ftp_port,
                 1 if enabled else 0,
                 backup_check_interval_hours,
                 daily_baseline_time,
                 force_backup_every_days,
+                retention_days,
                 now,
                 now,
             ),
@@ -378,15 +370,49 @@ def create_router(
     return RedirectResponse("/routers?notice=router_created", status_code=HTTP_303_SEE_OTHER)
 
 
+@app.post("/routers/test-draft", dependencies=[Depends(require_basic_auth)])
+def test_router_draft(
+    ip: str = Form(...),
+    api_port: int = Form(8728),
+    api_timeout_seconds: int = Form(5),
+    username: str = Form(...),
+    password: str = Form(...),
+    ftp_port: int = Form(21),
+):
+    try:
+        client = MikroTikClient(
+            host=ip,
+            port=api_port,
+            timeout=api_timeout_seconds or 5,
+            username=username,
+            password=password,
+            ftp_port=ftp_port or 21,
+        )
+        ok, message = client.test_connection()
+        if not ok:
+            ok, message = check_port(ip, api_port)
+        return RedirectResponse(
+            f"/routers?notice={'router_ok' if ok else 'router_fail'}&error={'' if ok else quote_message(message)}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
+    except Exception as exc:
+        return RedirectResponse(
+            f"/routers?notice=router_fail&error={quote_message(exc)}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
+
+
 @app.post("/routers/{router_id}", dependencies=[Depends(require_basic_auth)])
 def update_router(
     router_id: int,
-    branch_id: int = Form(...),
     name: str = Form(...),
     ip: str = Form(...),
     api_port: int = Form(8728),
+    api_timeout_seconds: int = Form(5),
     username: str = Form(...),
     password: str = Form(""),
+    ftp_port: int = Form(21),
+    retention_days: int = Form(30),
     enabled: Optional[str] = Form(None),
     backup_check_interval_hours: int = Form(6),
     daily_baseline_time: str = Form("02:00"),
@@ -397,21 +423,24 @@ def update_router(
             conn.execute(
                 """
                 UPDATE routers
-                SET branch_id = ?, name = ?, ip = ?, api_port = ?, username = ?, encrypted_password = ?, enabled = ?,
-                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?, updated_at = ?
+                SET name = ?, ip = ?, api_port = ?, api_timeout_seconds = ?, username = ?, encrypted_password = ?, ftp_port = ?, enabled = ?,
+                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?,
+                    retention_days = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    branch_id,
                     name,
                     ip,
                     api_port,
+                    api_timeout_seconds,
                     username,
-                    encrypt_secret(password),
+                    password,
+                    ftp_port,
                     1 if enabled else 0,
                     backup_check_interval_hours,
                     daily_baseline_time,
                     force_backup_every_days,
+                    retention_days,
                     utcnow(),
                     router_id,
                 ),
@@ -420,20 +449,23 @@ def update_router(
             conn.execute(
                 """
                 UPDATE routers
-                SET branch_id = ?, name = ?, ip = ?, api_port = ?, username = ?, enabled = ?,
-                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?, updated_at = ?
+                SET name = ?, ip = ?, api_port = ?, api_timeout_seconds = ?, username = ?, ftp_port = ?, enabled = ?,
+                    backup_check_interval_hours = ?, daily_baseline_time = ?, force_backup_every_days = ?,
+                    retention_days = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    branch_id,
                     name,
                     ip,
                     api_port,
+                    api_timeout_seconds,
                     username,
+                    ftp_port,
                     1 if enabled else 0,
                     backup_check_interval_hours,
                     daily_baseline_time,
                     force_backup_every_days,
+                    retention_days,
                     utcnow(),
                     router_id,
                 ),
@@ -448,6 +480,18 @@ def delete_router(router_id: int):
     return RedirectResponse("/routers?notice=router_deleted", status_code=HTTP_303_SEE_OTHER)
 
 
+@app.post("/routers/{router_id}/toggle", dependencies=[Depends(require_basic_auth)])
+def toggle_router(router_id: int):
+    with get_db(settings.db_path) as conn:
+        router = conn.execute("SELECT enabled FROM routers WHERE id = ?", (router_id,)).fetchone()
+        if not router:
+            raise HTTPException(status_code=404, detail="Router not found")
+        new_value = 0 if router["enabled"] else 1
+        conn.execute("UPDATE routers SET enabled = ?, updated_at = ? WHERE id = ?", (new_value, utcnow(), router_id))
+    notice = "router_enabled" if new_value else "router_disabled"
+    return RedirectResponse(f"/routers?notice={notice}", status_code=HTTP_303_SEE_OTHER)
+
+
 @app.post("/routers/{router_id}/test", dependencies=[Depends(require_basic_auth)])
 def test_router(router_id: int):
     with get_db(settings.db_path) as conn:
@@ -458,8 +502,10 @@ def test_router(router_id: int):
         client = MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
+            timeout=router.get("api_timeout_seconds") or 5,
             username=router["username"],
-            password=decrypt_secret(router["encrypted_password"]),
+            password=router["encrypted_password"],
+            ftp_port=router.get("ftp_port") or 21,
         )
         ok, message = client.test_connection()
         if not ok:
@@ -475,18 +521,30 @@ def test_router(router_id: int):
         )
 
 
+@app.post("/routers/{router_id}/test-telegram", dependencies=[Depends(require_basic_auth)])
+def test_router_telegram(router_id: int):
+    try:
+        from app.services.telegram import get_default_recipients
+
+        recipients = get_default_recipients()
+        if not recipients:
+            raise RuntimeError("No telegram recipients set in Settings")
+        send_message(recipients, "RouterVault test message")
+        return RedirectResponse(f"/routers/{router_id}?notice=telegram_ok", status_code=HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        return RedirectResponse(
+            f"/routers/{router_id}?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER
+        )
+
+
 @app.post("/routers/{router_id}/backup", dependencies=[Depends(require_basic_auth)])
 def trigger_backup(router_id: int):
     with get_db(settings.db_path) as conn:
         router = conn.execute(
             """
-            SELECT routers.*, branches.name AS branch_name,
-                   branches.franchisee_emails,
-                   branches.retention_days,
-                   branches.telegram_recipients
+            SELECT *
             FROM routers
-            JOIN branches ON branches.id = routers.branch_id
-            WHERE routers.id = ?
+            WHERE id = ?
             """,
             (router_id,),
         ).fetchone()
@@ -518,11 +576,19 @@ def settings_page(request: Request):
 
 
 @app.post("/settings", dependencies=[Depends(require_basic_auth)])
-def update_settings(stale_backup_days: int = Form(3)):
+def update_settings(
+    stale_backup_days: int = Form(3),
+    telegram_token: str = Form(""),
+    telegram_recipients: str = Form(""),
+):
     with get_db(settings.db_path) as conn:
         conn.execute(
-            "UPDATE settings SET stale_backup_days = ? WHERE id = 1",
-            (stale_backup_days,),
+            "UPDATE settings SET stale_backup_days = ?, telegram_token = ?, telegram_recipients = ? WHERE id = 1",
+            (
+                stale_backup_days,
+                telegram_token.strip(),
+                telegram_recipients.strip(),
+            ),
         )
     return RedirectResponse("/settings?notice=settings_saved", status_code=HTTP_303_SEE_OTHER)
 

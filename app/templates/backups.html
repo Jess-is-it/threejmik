@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row align-items-center">
+    <div class="col">
+      <h2 class="page-title">Backups</h2>
+      <div class="text-secondary">All backups stored on the server.</div>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table card-table table-vcenter">
+      <thead>
+        <tr>
+          <th>Router</th>
+          <th>Backup Date</th>
+          <th>Files</th>
+          <th>Logs</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for backup in backups %}
+        <tr>
+          <td>
+            <div class="fw-bold">{{ backup.router_name }}</div>
+            <div class="text-secondary">{{ backup.ip }}:{{ backup.api_port }}</div>
+          </td>
+          <td>{{ backup.created_at }}</td>
+          <td>
+            {% if backup.backup_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.backup_link }}">Download .backup</a>{% endif %}
+            {% if backup.rsc_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.rsc_link }}">Download .rsc</a>{% endif %}
+          </td>
+          <td>
+            <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#logs-{{ backup.id }}">View Logs</button>
+          </td>
+          <td class="text-end">
+            <button class="btn btn-warning btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#restore-{{ backup.id }}">Restore</button>
+            <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#delete-{{ backup.id }}">Delete</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-secondary">No backups yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% for backup in backups %}
+<div class="modal modal-blur fade" id="logs-{{ backup.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">MikroTik Logs - {{ backup.router_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {% if backup.logs_text %}
+        <pre class="text-secondary">{{ backup.logs_text }}</pre>
+        {% else %}
+        <div class="text-secondary">No logs recorded for this backup.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="restore-{{ backup.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Restore Backup</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Restore backup for {{ backup.router_name }}? This will reboot the router.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="/backups/{{ backup.id }}/restore">
+          <button class="btn btn-warning" type="submit">Yes, Restore</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="delete-{{ backup.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete Backup</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Delete backup files for {{ backup.router_name }}?
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="/backups/{{ backup.id }}/delete">
+          <button class="btn btn-danger" type="submit">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
