@@ -32,6 +32,7 @@ def init_db(db_path: Path) -> None:
                 retention_days INTEGER DEFAULT 30,
                 telegram_recipients TEXT,
                 last_log_check_at TEXT,
+                last_backup_log_at TEXT,
                 last_success_at TEXT,
                 last_backup_at TEXT,
                 last_error TEXT,
@@ -52,6 +53,7 @@ def init_db(db_path: Path) -> None:
                 backup_link TEXT,
                 change_summary TEXT,
                 logs TEXT,
+                trigger TEXT DEFAULT 'auto',
                 was_forced INTEGER DEFAULT 0,
                 was_changed INTEGER DEFAULT 0,
                 FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE CASCADE
@@ -106,6 +108,7 @@ def init_db(db_path: Path) -> None:
                     retention_days INTEGER DEFAULT 30,
                     telegram_recipients TEXT,
                     last_log_check_at TEXT,
+                    last_backup_log_at TEXT,
                     last_success_at TEXT,
                     last_backup_at TEXT,
                     last_error TEXT,
@@ -130,7 +133,7 @@ def init_db(db_path: Path) -> None:
                     id, name, ip, api_port, api_timeout_seconds, username, encrypted_password, ftp_port, enabled,
                     backup_check_interval_hours, daily_baseline_time, force_backup_every_days,
                     retention_days, telegram_recipients,
-                    last_log_check_at, last_success_at, last_backup_at, last_error,
+                    last_log_check_at, last_backup_log_at, last_success_at, last_backup_at, last_error,
                     last_hash, last_config_change_at, last_backup_links,
                     last_check_at, last_baseline_at, created_at, updated_at
                 )
@@ -138,7 +141,9 @@ def init_db(db_path: Path) -> None:
                     id, name, ip, api_port, {api_timeout_expr}, username, encrypted_password, {ftp_port_expr}, enabled,
                     backup_check_interval_hours, daily_baseline_time, force_backup_every_days,
                     {retention_expr}, {telegram_expr},
-                    last_log_check_at, last_success_at, last_backup_at, last_error,
+                    last_log_check_at,
+                    COALESCE(last_log_check_at, last_success_at),
+                    last_success_at, last_backup_at, last_error,
                     last_hash, last_config_change_at, last_backup_links,
                     last_check_at, last_baseline_at, created_at, updated_at
                 FROM routers
@@ -147,11 +152,43 @@ def init_db(db_path: Path) -> None:
             conn.execute("DROP TABLE routers")
             conn.execute("ALTER TABLE routers_new RENAME TO routers")
             conn.execute("DROP TABLE IF EXISTS branches")
+        routers_columns = [row[1] for row in conn.execute("PRAGMA table_info(routers)").fetchall()]
+        if "last_backup_log_at" not in routers_columns:
+            conn.execute("ALTER TABLE routers ADD COLUMN last_backup_log_at TEXT")
+            conn.execute(
+                """
+                UPDATE routers
+                SET last_backup_log_at = COALESCE(last_log_check_at, last_success_at)
+                WHERE last_backup_log_at IS NULL
+                """
+            )
         settings_columns = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
+        backups_columns = [row[1] for row in conn.execute("PRAGMA table_info(backups)").fetchall()]
+        if "trigger" not in backups_columns:
+            conn.execute("ALTER TABLE backups ADD COLUMN trigger TEXT DEFAULT 'auto'")
         if "telegram_token" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_token TEXT")
         if "telegram_recipients" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_recipients TEXT")
+        if "basic_user" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN basic_user TEXT")
+        if "basic_password" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN basic_password TEXT")
+        if "mock_mode" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN mock_mode INTEGER DEFAULT 0")
+        if "export_show_sensitive" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN export_show_sensitive INTEGER DEFAULT 0")
+
+        conn.execute(
+            """
+            UPDATE settings
+            SET basic_user = COALESCE(NULLIF(basic_user, ''), 'admin'),
+                basic_password = COALESCE(NULLIF(basic_password, ''), 'changeme'),
+                mock_mode = COALESCE(mock_mode, 0),
+                export_show_sensitive = COALESCE(export_show_sensitive, 0)
+            WHERE id = 1
+            """
+        )
 
 
 def utcnow() -> str:

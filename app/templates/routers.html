@@ -4,7 +4,6 @@
   <div class="row align-items-center">
     <div class="col">
       <h2 class="page-title">Routers</h2>
-      <div class="text-secondary">Manage RouterOS devices and schedules.</div>
     </div>
   </div>
 </div>
@@ -18,40 +17,60 @@
 </ul>
 <div class="tab-content">
   <div class="tab-pane active show" id="tab-add">
-    <form method="post" action="/routers">
+    <form method="post" action="/routers/bulk" id="add-router-form">
       <div class="card">
-        <div class="card-header"><h3 class="card-title">Add Router</h3></div>
+        <div class="card-header">
+          <h3 class="card-title">Add Router</h3>
+          <div class="ms-auto text-secondary">{{ routers|length }} saved</div>
+        </div>
+        <div id="draft-test-alert" class="alert d-none" role="alert"></div>
         <div class="table-responsive">
           <table class="table card-table table-vcenter">
             <thead>
               <tr>
-                <th>Router Name</th>
-                <th>IP</th>
-                <th>API Port</th>
-                <th>API Timeout</th>
-                <th>Username</th>
-                <th>Password</th>
-                <th>FTP Port</th>
+                <th data-bs-toggle="tooltip" title="Friendly name for the router.">Router Name</th>
+                <th data-bs-toggle="tooltip" title="Router IP address or hostname reachable from RouterVault.">IP</th>
+                <th data-bs-toggle="tooltip" title="RouterOS API port (default 8728).">API Port</th>
+                <th data-bs-toggle="tooltip" title="API timeout in seconds.">API Timeout</th>
+                <th data-bs-toggle="tooltip" title="RouterOS username for API/FTP.">Username</th>
+                <th data-bs-toggle="tooltip" title="RouterOS password for API/FTP.">Password</th>
+                <th data-bs-toggle="tooltip" title="FTP port used to download backup files (default 21).">FTP Port</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
+              {% for router in routers %}
               <tr>
-                <td><input class="form-control" name="name" required></td>
-                <td><input class="form-control" name="ip" required></td>
-                <td><input class="form-control" type="number" name="api_port" value="8728"></td>
-                <td><input class="form-control" type="number" name="api_timeout_seconds" value="5" min="1"></td>
-                <td><input class="form-control" name="username" required></td>
-                <td><input class="form-control" name="password" type="password" required></td>
-                <td><input class="form-control" type="number" name="ftp_port" value="21" min="1"></td>
+                <td class="fw-bold">{{ router.name }}</td>
+                <td>{{ router.ip }}</td>
+                <td>{{ router.api_port }}</td>
+                <td>{{ router.api_timeout_seconds or 5 }}</td>
+                <td>{{ router.username }}</td>
+                <td>********</td>
+                <td>{{ router.ftp_port or 21 }}</td>
                 <td>
-                  <button class="btn btn-outline-primary btn-sm" type="submit" formmethod="post" formaction="/routers/test-draft" formnovalidate>Test API</button>
+                  <button class="btn btn-outline-primary btn-sm test-api-saved" type="button" data-router-id="{{ router.id }}">Test API</button>
+                  <button class="btn btn-outline-danger btn-sm" type="submit" formmethod="post" formaction="/routers/{{ router.id }}/delete" formnovalidate onclick="return confirm('Delete this router?')">Delete</button>
                 </td>
               </tr>
+              {% endfor %}
+            </tbody>
+            <tbody id="add-router-body">
+              {% for i in range(0, 5) %}
+              <tr data-row="new" data-index="{{ i }}">
+                <td><input class="form-control" name="name_{{ i }}" placeholder="Core Router" data-bs-toggle="tooltip" title="Friendly name for the router."></td>
+                <td><input class="form-control" name="ip_{{ i }}" placeholder="10.0.0.1" data-bs-toggle="tooltip" title="Router IP address or hostname."></td>
+                <td><input class="form-control" type="number" name="api_port_{{ i }}" value="8728" min="1" data-bs-toggle="tooltip" title="RouterOS API port (default 8728)."></td>
+                <td><input class="form-control" type="number" name="api_timeout_seconds_{{ i }}" value="5" min="1" data-bs-toggle="tooltip" title="API timeout in seconds."></td>
+                <td><input class="form-control" name="username_{{ i }}" placeholder="admin" data-bs-toggle="tooltip" title="RouterOS username."></td>
+                <td><input class="form-control" name="password_{{ i }}" type="password" placeholder="password" data-bs-toggle="tooltip" title="RouterOS password."></td>
+                <td><input class="form-control" type="number" name="ftp_port_{{ i }}" value="21" min="1" data-bs-toggle="tooltip" title="FTP port (default 21)."></td>
+                <td></td>
+              </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
-        <input type="hidden" name="enabled" value="1">
         <div class="card-footer text-end">
           <button class="btn btn-primary" type="submit">Create Router</button>
         </div>
@@ -62,17 +81,50 @@
     <form method="post" action="/routers/presets">
       <div class="card">
         <div class="card-header"><h3 class="card-title">Router Presets</h3></div>
+        <div class="card-body">
+          <div class="alert alert-info" role="alert">
+            <div class="d-flex">
+              <div class="me-2"><i class="ti ti-info-circle"></i></div>
+              <div>
+                <div class="d-flex align-items-center justify-content-between gap-2">
+                  <div class="fw-bold">How auto backups work</div>
+                  <button
+                    id="toggle-auto-backup-note"
+                    type="button"
+                    class="btn btn-sm btn-icon border-0 bg-transparent text-secondary"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#auto-backup-note"
+                    aria-expanded="true"
+                    aria-controls="auto-backup-note"
+                  >
+                    <i class="ti ti-chevron-up"></i>
+                  </button>
+                </div>
+                <div class="text-secondary collapse show" id="auto-backup-note">
+                  RouterVault checks for configuration changes every <b>Check for changes (hours)</b>. If it detects a change, it backs up immediately.
+                  If there are no changes, it won’t create a backup every time — instead, it still makes sure you get a fresh backup at least every
+                  <b>Backup Age Limit (days)</b> by forcing one at the <b>Daily backup time</b>.
+                  <br><br>
+                  <b>Example:</b> Backup Age Limit = <b>3 days</b>. Today is <b>Jan 23</b>. Daily backup time is <b>11:30 PM</b>, and change checks run every <b>2 hours</b>.
+                  On <b>Jan 25</b> at <b>11:30 PM</b>, if there are still no changes, RouterVault skips the backup. On <b>Jan 26</b> at <b>11:30 PM</b>, if there are still no changes,
+                  RouterVault forces a backup because it has been <b>3 days</b> since the last successful backup.
+                  <br><br>
+                  You can change the <a href="/settings#backup-age-days">Backup Age Limit</a> in Settings.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="table-responsive">
           <table class="table card-table table-vcenter">
             <thead>
               <tr>
-                <th>Router</th>
-                <th>Retention Days</th>
-                <th>Backup Check Interval</th>
-                <th>Daily Baseline Time</th>
-                <th>Force Backup Every</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th data-bs-toggle="tooltip" title="Router name and link to details.">Router</th>
+                <th data-bs-toggle="tooltip" title="Deletes RouterVault-created files older than this many days.">Retention Days</th>
+                <th data-bs-toggle="tooltip" title="How often RouterVault checks for changes (hours).">Check for changes (hours)</th>
+                <th data-bs-toggle="tooltip" title="Time of day (HH:MM) to run the daily backup check.">Daily backup time</th>
+                <th data-bs-toggle="tooltip" title="Force a backup if the last successful backup is older than this many days.">Force backup after (days)</th>
+                <th data-bs-toggle="tooltip" title="Enable/disable scheduled checks.">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -82,10 +134,10 @@
                   <div class="fw-bold"><a href="/routers/{{ router.id }}">{{ router.name }}</a></div>
                   <input type="hidden" name="router_id_{{ router.id }}" value="{{ router.id }}">
                 </td>
-                <td><input class="form-control" type="number" name="retention_days_{{ router.id }}" value="{{ router.retention_days }}" min="1"></td>
-                <td><input class="form-control" type="number" name="backup_check_interval_hours_{{ router.id }}" value="{{ router.backup_check_interval_hours }}" min="1"></td>
-                <td><input class="form-control" name="daily_baseline_time_{{ router.id }}" value="{{ router.daily_baseline_time }}" placeholder="HH:MM"></td>
-                <td><input class="form-control" type="number" name="force_backup_every_days_{{ router.id }}" value="{{ router.force_backup_every_days }}" min="1"></td>
+                <td><input class="form-control" type="number" name="retention_days_{{ router.id }}" value="{{ router.retention_days }}" min="1" data-bs-toggle="tooltip" title="Retention in days."></td>
+                <td><input class="form-control" type="number" name="backup_check_interval_hours_{{ router.id }}" value="{{ router.backup_check_interval_hours }}" min="1" data-bs-toggle="tooltip" title="Check interval in hours."></td>
+                <td><input class="form-control" name="daily_baseline_time_{{ router.id }}" value="{{ router.daily_baseline_time }}" placeholder="HH:MM" data-bs-toggle="tooltip" title="Time in HH:MM (24h)."></td>
+                <td><input class="form-control" type="number" name="force_backup_every_days_{{ router.id }}" value="{{ router.force_backup_every_days }}" min="1" data-bs-toggle="tooltip" title="Force backup after N days."></td>
                 <td>
                   <label class="form-check form-check-inline">
                     <input class="form-check-input" type="radio" name="enabled_{{ router.id }}" value="1" {% if router.enabled %}checked{% endif %}>
@@ -96,13 +148,10 @@
                     <span class="form-check-label">Disable</span>
                   </label>
                 </td>
-                <td>
-                  <button class="btn btn-outline-primary btn-sm" type="submit" formmethod="post" formaction="/routers/{{ router.id }}/test" formnovalidate>Test API</button>
-                </td>
               </tr>
               {% else %}
               <tr>
-                <td colspan="7" class="text-secondary">Please add router first.</td>
+                <td colspan="6" class="text-secondary">Please add router first.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -115,4 +164,103 @@
     </form>
   </div>
 </div>
+<script>
+  (() => {
+    const autoBackupNote = document.getElementById("auto-backup-note");
+    const autoBackupBtn = document.getElementById("toggle-auto-backup-note");
+    if (autoBackupNote && autoBackupBtn) {
+      const setState = (expanded) => {
+        autoBackupBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+        autoBackupBtn.innerHTML = expanded ? '<i class="ti ti-chevron-up"></i>' : '<i class="ti ti-chevron-down"></i>';
+        autoBackupBtn.setAttribute("data-bs-title", expanded ? "Minimize" : "Maximize");
+      };
+      setState(autoBackupNote.classList.contains("show"));
+      autoBackupNote.addEventListener("shown.bs.collapse", () => setState(true));
+      autoBackupNote.addEventListener("hidden.bs.collapse", () => setState(false));
+    }
+
+    const body = document.getElementById("add-router-body");
+    const alertBox = document.getElementById("draft-test-alert");
+    if (!body) {
+      return;
+    }
+    const batchSize = 5;
+    let rowCount = body.querySelectorAll('tr[data-row="new"]').length;
+
+    const makeRow = (idx) => {
+      const row = document.createElement("tr");
+      row.setAttribute("data-row", "new");
+      row.setAttribute("data-index", String(idx));
+      row.innerHTML = `
+        <td><input class="form-control" name="name_${idx}" placeholder="Core Router" data-bs-toggle="tooltip" title="Friendly name for the router."></td>
+        <td><input class="form-control" name="ip_${idx}" placeholder="10.0.0.1" data-bs-toggle="tooltip" title="Router IP address or hostname."></td>
+        <td><input class="form-control" type="number" name="api_port_${idx}" value="8728" min="1" data-bs-toggle="tooltip" title="RouterOS API port (default 8728)."></td>
+        <td><input class="form-control" type="number" name="api_timeout_seconds_${idx}" value="5" min="1" data-bs-toggle="tooltip" title="API timeout in seconds."></td>
+        <td><input class="form-control" name="username_${idx}" placeholder="admin" data-bs-toggle="tooltip" title="RouterOS username."></td>
+        <td><input class="form-control" name="password_${idx}" type="password" placeholder="password" data-bs-toggle="tooltip" title="RouterOS password."></td>
+        <td><input class="form-control" type="number" name="ftp_port_${idx}" value="21" min="1" data-bs-toggle="tooltip" title="FTP port (default 21)."></td>
+        <td></td>
+      `;
+      return row;
+    };
+
+    const isRowComplete = (idx) => {
+      const required = ["name", "ip", "username", "password"];
+      return required.every((field) => {
+        const input = body.querySelector(`[name="${field}_${idx}"]`);
+        return input && input.value.trim() !== "";
+      });
+    };
+
+    const maybeAddBatch = () => {
+      if (rowCount % batchSize !== 0) {
+        return;
+      }
+      const start = rowCount - batchSize;
+      for (let i = start; i < rowCount; i += 1) {
+        if (!isRowComplete(i)) {
+          return;
+        }
+      }
+      for (let i = 0; i < batchSize; i += 1) {
+        body.appendChild(makeRow(rowCount + i));
+      }
+      rowCount += batchSize;
+    };
+
+    body.addEventListener("input", (event) => {
+      if (event.target && event.target.tagName === "INPUT") {
+        maybeAddBatch();
+      }
+    });
+
+    const showAlert = (ok, message) => {
+      if (!alertBox) {
+        return;
+      }
+      alertBox.classList.remove("d-none", "alert-success", "alert-danger");
+      alertBox.classList.add(ok ? "alert-success" : "alert-danger");
+      alertBox.textContent = message || (ok ? "Connection OK" : "Connection failed");
+    };
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest(".test-api-saved");
+      if (!button) {
+        return;
+      }
+      const routerId = button.getAttribute("data-router-id");
+      if (!routerId) {
+        return;
+      }
+      try {
+        const response = await fetch(`/routers/${routerId}/test-ajax`, { method: "POST" });
+        const payload = await response.json();
+        showAlert(Boolean(payload.ok), payload.message);
+      } catch (err) {
+        showAlert(false, err?.message || "Connection failed");
+      }
+    });
+
+  })();
+</script>
 {% endblock %}

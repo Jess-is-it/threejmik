@@ -7,21 +7,7 @@ class Settings:
     def __init__(self) -> None:
         self.db_path = Path(os.getenv("ROUTERVAULT_DB_PATH", "/data/routervault.db"))
         self.storage_path = Path(os.getenv("ROUTERVAULT_STORAGE_PATH", "/data/storage"))
-        self.basic_user = os.getenv("ROUTERVAULT_BASIC_USER", "admin")
-        self.basic_password = os.getenv("ROUTERVAULT_BASIC_PASSWORD", "changeme")
         self.telegram_token = os.getenv("ROUTERVAULT_TELEGRAM_TOKEN", "")
-        self.mock_mode = os.getenv("ROUTERVAULT_MOCK_MODE", "false").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
-        self.log_keywords = [
-            keyword.strip().lower()
-            for keyword in os.getenv(
-                "ROUTERVAULT_LOG_KEYWORDS", "config,configuration,change,changed,script"
-            ).split(",")
-            if keyword.strip()
-        ]
         self.scheduler_interval_seconds = int(
             os.getenv("ROUTERVAULT_SCHEDULER_INTERVAL", "300")
         )

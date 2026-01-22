@@ -1,0 +1,6 @@
+{% macro tip(text, placement="top") -%}
+<span class="text-secondary ms-1 rv-tip" data-bs-toggle="tooltip" data-bs-placement="{{ placement }}" title="{{ text }}">
+  <i class="ti ti-info-circle"></i>
+</span>
+{%- endmacro %}
+

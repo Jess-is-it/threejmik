@@ -4,51 +4,120 @@
   <div class="row align-items-center">
     <div class="col">
       <h2 class="page-title">Backups</h2>
-      <div class="text-secondary">All backups stored on the server.</div>
     </div>
   </div>
 </div>
+
+{% if not routers %}
 <div class="card">
-  <div class="table-responsive">
-    <table class="table card-table table-vcenter">
-      <thead>
-        <tr>
-          <th>Router</th>
-          <th>Backup Date</th>
-          <th>Files</th>
-          <th>Logs</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for backup in backups %}
-        <tr>
-          <td>
-            <div class="fw-bold">{{ backup.router_name }}</div>
-            <div class="text-secondary">{{ backup.ip }}:{{ backup.api_port }}</div>
-          </td>
-          <td>{{ backup.created_at }}</td>
-          <td>
-            {% if backup.backup_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.backup_link }}">Download .backup</a>{% endif %}
-            {% if backup.rsc_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.rsc_link }}">Download .rsc</a>{% endif %}
-          </td>
-          <td>
-            <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#logs-{{ backup.id }}">View Logs</button>
-          </td>
-          <td class="text-end">
-            <button class="btn btn-warning btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#restore-{{ backup.id }}">Restore</button>
-            <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#delete-{{ backup.id }}">Delete</button>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="text-secondary">No backups yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card-body text-secondary">No routers added yet.</div>
+</div>
+{% else %}
+<div class="row g-3">
+  <div class="col-12 col-md-3">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Routers</h3>
+      </div>
+          <div class="card-body p-2">
+        <div class="nav nav-pills nav-vertical" role="tablist">
+          {% for router in routers %}
+          <a
+            class="nav-link rv-router-tab {% if router.id == selected_router_id %}active{% endif %}"
+            data-bs-toggle="tab"
+            role="tab"
+            href="#tab-router-{{ router.id }}"
+            aria-selected="{% if router.id == selected_router_id %}true{% else %}false{% endif %}"
+          >
+            <span class="rv-router-tab-name fw-bold">{{ router.name }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+	    </div>
+  </div>
+  <div class="col-12 col-md-9">
+    <div class="tab-content">
+      {% for router in routers %}
+      <div class="tab-pane {% if router.id == selected_router_id %}active show{% endif %}" id="tab-router-{{ router.id }}">
+        <div class="card">
+	          <div class="card-header">
+	            <div>
+	              <h3 class="card-title d-flex align-items-center gap-2 mb-1">
+	                <span class="router-api-status-dot rv-status-emoji rv-status-checking" data-router-id="{{ router.id }}" data-bs-toggle="tooltip" title="Checking router connection...">
+	                  <span class="rv-status-emoji-char">⚪</span>
+	                </span>
+	                <span>{{ router.name }}</span>
+	                <small class="router-api-status-text rv-router-status text-secondary" data-router-id="{{ router.id }}" data-bs-toggle="tooltip" title="Checking router connection...">Checking router connection...</small>
+	              </h3>
+	              <div class="d-flex flex-wrap gap-1">
+	                <span class="badge bg-secondary-lt rv-badge">IP: {{ router.ip }}</span>
+	                <span class="badge bg-secondary-lt rv-badge">API: {{ router.api_port }}</span>
+	                <span class="badge bg-secondary-lt rv-badge">FTP: {{ router.ftp_port or 21 }}</span>
+	              </div>
+	            </div>
+	            <div class="ms-auto d-flex align-items-center gap-2">
+	              <form method="post" action="/routers/{{ router.id }}/backup?next=/backups?router_id={{ router.id }}">
+	                <button class="btn btn-primary force-backup-btn" type="submit" data-router-id="{{ router.id }}" disabled>Manual Backup</button>
+	              </form>
+	            </div>
+	          </div>
+          <div class="table-responsive">
+            <table class="table card-table table-vcenter">
+              <thead>
+                <tr>
+                  <th class="rv-col-date" data-bs-toggle="tooltip" title="When this backup was created.">Backup Date</th>
+                  <th class="rv-col-files" data-bs-toggle="tooltip" title="Download the .backup and .rsc files stored on the server.">Files</th>
+                  <th data-bs-toggle="tooltip" title="Router logs captured around the change.">Logs</th>
+                  <th class="text-end rv-col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% set router_backups = backups_by_router.get(router.id, []) %}
+                {% for backup in router_backups %}
+                <tr>
+                  <td class="rv-col-date">{{ format_ts_ph(backup.created_at) }}</td>
+                  <td class="rv-col-files">
+                    <div class="btn-list flex-nowrap">
+                      {% if backup.backup_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.backup_link|replace('/storage/','/download/') }}" download>.backup</a>{% endif %}
+                      {% if backup.rsc_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.rsc_link|replace('/storage/','/download/') }}" download>.rsc</a>{% endif %}
+                    </div>
+                  </td>
+                  <td>
+                    {% if backup.logs_preview %}
+                    <button class="btn btn-link p-0 text-start rv-log-preview" type="button" data-bs-toggle="modal" data-bs-target="#logs-{{ backup.id }}">
+                      {{ backup.logs_preview }}
+                    </button>
+                    {% else %}
+                    <span class="text-secondary">No logs</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end rv-col-actions">
+                    <div class="btn-list flex-nowrap justify-content-end">
+                      <button class="btn btn-warning" type="button" data-bs-toggle="modal" data-bs-target="#restore-{{ backup.id }}" aria-label="Restore" data-bs-title="Restore">
+                        <i class="ti ti-history"></i>
+                      </button>
+                      <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#delete-{{ backup.id }}" aria-label="Delete" data-bs-title="Delete">
+                        <i class="ti ti-trash"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-secondary">No backups yet for this router.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 </div>
+{% endif %}
 
-{% for backup in backups %}
+{% for backup in all_backups %}
 <div class="modal modal-blur fade" id="logs-{{ backup.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
     <div class="modal-content">
@@ -110,4 +179,102 @@
   </div>
 </div>
 {% endfor %}
+<script>
+  (() => {
+    const statusTextById = (routerId) =>
+      document.querySelector(`.router-api-status-text[data-router-id="${routerId}"]`);
+    const statusDotsById = (routerId) =>
+      document.querySelectorAll(`.router-api-status-dot[data-router-id="${routerId}"]`);
+    const buttonById = (routerId) =>
+      document.querySelector(`.force-backup-btn[data-router-id="${routerId}"]`);
+
+    const setTooltip = (el, text) => {
+      if (!el) return;
+      el.setAttribute("title", text);
+      if (window.bootstrap && bootstrap.Tooltip) {
+        const instance = bootstrap.Tooltip.getInstance(el) || bootstrap.Tooltip.getOrCreateInstance(el);
+        if (instance && typeof instance.setContent === "function") {
+          instance.setContent({ ".tooltip-inner": text });
+        } else {
+          el.setAttribute("data-bs-original-title", text);
+        }
+      }
+    };
+
+    const setStatus = (routerId, ok, label) => {
+      const textEl = statusTextById(routerId);
+      const dotEls = statusDotsById(routerId);
+      const btn = buttonById(routerId);
+      const checkingText = label || "Checking router connection...";
+      if (textEl) {
+        if (ok === null) {
+          textEl.classList.remove("d-none");
+          textEl.textContent = checkingText;
+          setTooltip(textEl, checkingText);
+        } else {
+          textEl.classList.add("d-none");
+        }
+      }
+      for (const dotEl of dotEls) {
+        dotEl.classList.remove("rv-status-checking", "rv-status-ok", "rv-status-fail");
+        const charEl = dotEl.querySelector(".rv-status-emoji-char");
+        if (ok === null) {
+          dotEl.classList.add("rv-status-checking");
+          if (charEl) charEl.textContent = "⚪";
+          setTooltip(dotEl, checkingText);
+        } else if (ok) {
+          dotEl.classList.add("rv-status-ok");
+          if (charEl) charEl.textContent = "🟢";
+          setTooltip(dotEl, "Router API reachable");
+        } else {
+          dotEl.classList.add("rv-status-fail");
+          if (charEl) charEl.textContent = "🔴";
+          setTooltip(dotEl, "Router API unreachable");
+        }
+      }
+      if (btn) {
+        btn.disabled = ok !== true;
+      }
+    };
+
+    const checkRouter = async (routerId) => {
+      setStatus(routerId, null, "Checking router connection...");
+      try {
+        const response = await fetch(`/routers/${routerId}/test-ajax`, { method: "POST" });
+        const payload = await response.json();
+        setStatus(routerId, Boolean(payload.ok), payload.ok ? "Router API reachable" : "Router API unreachable");
+      } catch (err) {
+        setStatus(routerId, false, "Router API unreachable");
+      }
+    };
+
+    const activeTabRouterId = () => {
+      const active = document.querySelector(".tab-pane.active[id^='tab-router-']");
+      if (!active) return null;
+      const parts = active.id.split("-");
+      const routerId = parts[parts.length - 1];
+      return routerId || null;
+    };
+
+    const init = () => {
+      const routerId = activeTabRouterId();
+      if (routerId) {
+        checkRouter(routerId);
+      }
+    };
+
+    document.addEventListener("shown.bs.tab", (event) => {
+      const target = event.target;
+      if (!target || !target.getAttribute) return;
+      const href = target.getAttribute("href") || "";
+      if (!href.startsWith("#tab-router-")) return;
+      const routerId = href.replace("#tab-router-", "");
+      if (routerId) {
+        checkRouter(routerId);
+      }
+    });
+
+    init();
+  })();
+</script>
 {% endblock %}

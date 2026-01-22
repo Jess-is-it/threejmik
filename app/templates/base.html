@@ -6,7 +6,7 @@
   <title>{{ app_name }} - {{ title if title else "" }}</title>
   <link rel="stylesheet" href="/static/tabler/tabler.min.css">
   <link rel="stylesheet" href="/static/tabler/tabler-icons.min.css">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=5">
 </head>
 <body class="theme-light">
   <div class="page">
@@ -59,9 +59,27 @@
       </div>
     </aside>
     <div class="page-wrapper">
-      <div class="container-xl">
+      <header class="navbar navbar-expand-md navbar-light d-print-none rv-topbar">
+        <div class="container-fluid">
+          <div class="ms-auto d-flex align-items-center rv-metrics-row">
+            <div class="rv-metric" data-bs-toggle="tooltip" title="CPU usage">
+              <i class="ti ti-cpu rv-metric-icon"></i><span class="rv-metric-title">CPU</span><span class="rv-metric-value" id="rv-stat-cpu">-</span>
+            </div>
+            <div class="rv-metric" data-bs-toggle="tooltip" title="RAM usage">
+              <i class="ti ti-memory rv-metric-icon"></i><span class="rv-metric-title">RAM</span><span class="rv-metric-value" id="rv-stat-ram">-</span>
+            </div>
+            <div class="rv-metric" data-bs-toggle="tooltip" title="Disk usage for /data">
+              <i class="ti ti-database rv-metric-icon"></i><span class="rv-metric-title">DISK</span><span class="rv-metric-value" id="rv-stat-disk">-</span>
+            </div>
+            <div class="rv-metric" data-bs-toggle="tooltip" title="Host uptime">
+              <i class="ti ti-clock rv-metric-icon"></i><span class="rv-metric-title">UPTIME</span><span class="rv-metric-value" id="rv-stat-uptime">-</span>
+            </div>
+          </div>
+        </div>
+      </header>
+      <div class="rv-page-container {{ container_class if container_class else 'container-xl' }}">
         {% if notice %}
-        <div class="alert alert-success" role="alert">{{ notice }}</div>
+        <div class="alert alert-success" role="alert" data-autoclear="true">{{ notice }}</div>
         {% endif %}
         {% if error %}
         <div class="alert alert-danger" role="alert">{{ error }}</div>
@@ -71,5 +89,74 @@
     </div>
   </div>
   <script src="/static/tabler/tabler.min.js"></script>
+  <script>
+    (() => {
+      if (window.bootstrap && bootstrap.Tooltip) {
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"], [data-bs-title]');
+        for (const el of tooltipTriggerList) {
+          new bootstrap.Tooltip(el);
+        }
+      }
+      if (window.location && window.location.hash) {
+        const el = document.querySelector(window.location.hash);
+        if (el) {
+          el.scrollIntoView({ block: "center" });
+          if (typeof el.focus === "function") {
+            el.focus();
+          }
+        }
+      }
+      const alerts = document.querySelectorAll(".alert.alert-success[data-autoclear='true']");
+      for (const alert of alerts) {
+        window.setTimeout(() => {
+          alert.remove();
+        }, 10000);
+      }
+    })();
+  </script>
+  <script>
+    (() => {
+      const elCpu = document.getElementById("rv-stat-cpu");
+      const elRam = document.getElementById("rv-stat-ram");
+      const elDisk = document.getElementById("rv-stat-disk");
+      const elUptime = document.getElementById("rv-stat-uptime");
+      if (!elCpu || !elRam || !elDisk || !elUptime) return;
+
+      const fmtUptime = (seconds) => {
+        const s = Math.max(0, Number(seconds) || 0);
+        const days = Math.floor(s / 86400);
+        const hours = Math.floor((s % 86400) / 3600);
+        const mins = Math.floor((s % 3600) / 60);
+        if (days > 0) return `${days}d ${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`;
+        return `${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`;
+      };
+
+      const fmtGb = (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "-";
+        return n.toFixed(1);
+      };
+
+      const update = async () => {
+        try {
+          const res = await fetch("/api/system/stats", { headers: { "Accept": "application/json" } });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          elCpu.textContent = Number.isFinite(data.cpu_percent) ? `${Math.round(data.cpu_percent)}%` : "-";
+          elRam.textContent = Number.isFinite(data.mem_percent) ? `${Math.round(data.mem_percent)}%` : "-";
+          elDisk.textContent = Number.isFinite(data.disk_percent) ? `${Math.round(data.disk_percent)}%` : "-";
+          elUptime.textContent = Number.isFinite(data.uptime_seconds) ? fmtUptime(data.uptime_seconds) : "-";
+        } catch (e) {
+          elCpu.textContent = "-";
+          elRam.textContent = "-";
+          elDisk.textContent = "-";
+          elUptime.textContent = "-";
+        }
+      };
+
+      update();
+      window.setInterval(update, 5000);
+    })();
+  </script>
 </body>
 </html>

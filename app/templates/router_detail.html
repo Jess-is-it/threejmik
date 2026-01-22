@@ -9,13 +9,13 @@
     <div class="col-auto ms-auto">
       <div class="btn-list">
         <form method="post" action="/routers/{{ router.id }}/test">
-          <button class="btn btn-outline-secondary" type="submit">Test Connection</button>
+          <button class="btn btn-outline-secondary" type="submit" data-bs-toggle="tooltip" title="Test RouterOS API connectivity">Test Connection</button>
         </form>
         <form method="post" action="/routers/{{ router.id }}/test-telegram">
-          <button class="btn btn-outline-secondary" type="submit">Test Telegram</button>
+          <button class="btn btn-outline-secondary" type="submit" data-bs-toggle="tooltip" title="Send a test Telegram message using Settings">Test Telegram</button>
         </form>
         <form method="post" action="/routers/{{ router.id }}/backup">
-          <button class="btn btn-primary" type="submit">Run Backup</button>
+          <button class="btn btn-primary" type="submit" data-bs-toggle="tooltip" title="Run an immediate backup for this router">Run Backup</button>
         </form>
       </div>
     </div>
@@ -29,9 +29,9 @@
         <table class="table card-table table-vcenter">
           <thead>
             <tr>
-              <th>Created</th>
-              <th>RSC Hash</th>
-              <th>Links</th>
+              <th data-bs-toggle="tooltip" title="Backup creation time.">Created</th>
+              <th data-bs-toggle="tooltip" title="SHA256 hash of normalized .rsc export.">RSC Hash</th>
+              <th data-bs-toggle="tooltip" title="Download links for this backup.">Links</th>
             </tr>
           </thead>
           <tbody>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import tip %}
 {% block content %}
 <div class="page-header d-print-none">
   <div class="row align-items-center">
@@ -11,57 +12,74 @@
 <form class="card" method="post" action="/routers/{{ router.id }}">
   <div class="card-body">
     <div class="mb-3">
-      <label class="form-label">Router Name</label>
-      <input class="form-control" name="name" value="{{ router.name }}" required>
+      <label class="form-label">Router Name {{ tip("Friendly name for this router (used for folder names and display).") }}</label>
+      <input class="form-control" name="name" value="{{ router.name }}" required data-bs-toggle="tooltip" title="Friendly name for this router.">
     </div>
     <div class="mb-3">
-      <label class="form-label">IP</label>
-      <input class="form-control" name="ip" value="{{ router.ip }}" required>
+      <label class="form-label">IP {{ tip("Router IP address or hostname reachable from this server.") }}</label>
+      <input class="form-control" name="ip" value="{{ router.ip }}" required data-bs-toggle="tooltip" title="IP address or hostname reachable from RouterVault.">
     </div>
     <div class="mb-3">
-      <label class="form-label">API Port</label>
-      <input class="form-control" type="number" name="api_port" value="{{ router.api_port }}">
+      <label class="form-label">API Port {{ tip("RouterOS API port (default 8728).") }}</label>
+      <input class="form-control" type="number" name="api_port" value="{{ router.api_port }}" data-bs-toggle="tooltip" title="RouterOS API port (default 8728).">
     </div>
     <div class="mb-3">
-      <label class="form-label">API Timeout (seconds)</label>
-      <input class="form-control" type="number" name="api_timeout_seconds" value="{{ router.api_timeout_seconds }}" min="1">
+      <label class="form-label">API Timeout (seconds) {{ tip("Timeout for API requests to this router.") }}</label>
+      <input class="form-control" type="number" name="api_timeout_seconds" value="{{ router.api_timeout_seconds }}" min="1" data-bs-toggle="tooltip" title="Timeout for API requests.">
     </div>
     <div class="mb-3">
-      <label class="form-label">Username</label>
-      <input class="form-control" name="username" value="{{ router.username }}" required>
+      <label class="form-label">Username {{ tip("RouterOS username used for API and FTP.") }}</label>
+      <input class="form-control" name="username" value="{{ router.username }}" required data-bs-toggle="tooltip" title="RouterOS username.">
     </div>
     <div class="mb-3">
-      <label class="form-label">Password (leave blank to keep)</label>
-      <input class="form-control" name="password" type="password">
+      <label class="form-label">Password (leave blank to keep) {{ tip("RouterOS password. Leave blank to keep the current stored password.") }}</label>
+      <input class="form-control" name="password" type="password" data-bs-toggle="tooltip" title="Leave blank to keep the current stored password.">
     </div>
     <div class="mb-3">
-      <label class="form-label">FTP Port</label>
-      <input class="form-control" type="number" name="ftp_port" value="{{ router.ftp_port }}" min="1">
+      <label class="form-label">FTP Port {{ tip("FTP port used to download backup/export files (default 21).") }}</label>
+      <input class="form-control" type="number" name="ftp_port" value="{{ router.ftp_port }}" min="1" data-bs-toggle="tooltip" title="FTP port (default 21).">
     </div>
     <div class="mb-3">
-      <label class="form-label">Retention Days</label>
-      <input class="form-control" type="number" name="retention_days" value="{{ router.retention_days }}" min="1">
+      <label class="form-label">Retention Days {{ tip("Deletes RouterVault-created files older than this many days.") }}</label>
+      <input class="form-control" type="number" name="retention_days" value="{{ router.retention_days }}" min="1" data-bs-toggle="tooltip" title="Retention period in days.">
     </div>
     <div class="mb-3">
-      <label class="form-label">Telegram Recipients</label>
-      <input class="form-control" name="telegram_recipients" value="{{ router.telegram_recipients }}">
+      <label class="form-label">Telegram Recipients {{ tip("Optional per-router recipients (future). Currently uses Settings recipients.") }}</label>
+      <input class="form-control" name="telegram_recipients" value="{{ router.telegram_recipients }}" data-bs-toggle="tooltip" title="Optional per-router recipients (currently not used).">
     </div>
     <div class="mb-3">
-      <label class="form-label">Backup Check Interval (hours)</label>
-      <input class="form-control" type="number" name="backup_check_interval_hours" value="{{ router.backup_check_interval_hours }}" min="1">
+      <label class="form-label">Check for changes every (hours) {{ tip("How often RouterVault checks this router for configuration changes.") }}</label>
+      <input class="form-control" type="number" name="backup_check_interval_hours" value="{{ router.backup_check_interval_hours }}" min="1" data-bs-toggle="tooltip" title="How often to check for config changes.">
     </div>
     <div class="mb-3">
-      <label class="form-label">Daily Baseline Time</label>
-      <input class="form-control" name="daily_baseline_time" value="{{ router.daily_baseline_time }}" placeholder="HH:MM">
+      <label class="form-label">Daily backup time {{ tip("Time of day (HH:MM) to run the daily backup check.") }}</label>
+      <input class="form-control" name="daily_baseline_time" value="{{ router.daily_baseline_time }}" placeholder="HH:MM" data-bs-toggle="tooltip" title="Time of day in HH:MM (24h).">
     </div>
     <div class="mb-3">
-      <label class="form-label">Force Backup Every (days)</label>
-      <input class="form-control" type="number" name="force_backup_every_days" value="{{ router.force_backup_every_days }}" min="1">
+      <label class="form-label">Force backup after (days) {{ tip("Forces a backup if there hasn't been a successful backup within this many days.") }}</label>
+      <input class="form-control" type="number" name="force_backup_every_days" value="{{ router.force_backup_every_days }}" min="1" data-bs-toggle="tooltip" title="Force a backup after this many days.">
+    </div>
+    <div class="mb-3">
+      <div class="alert alert-info" role="alert">
+        <div class="d-flex">
+          <div class="me-2"><i class="ti ti-info-circle"></i></div>
+          <div>
+            <div class="fw-bold">How forced backups work</div>
+            <div class="text-secondary">
+              RouterVault checks for configuration changes every <b>Check for changes every (hours)</b>. If it detects a change, it backs up immediately.
+              If there are no changes, it will still force a backup at the <b>Daily backup time</b> once the last successful backup is older than <b>Backup Age Limit (days)</b> (Settings).
+              <br><br>
+              <b>Example:</b> If checks run every <b>2 hours</b> and Daily backup time is <b>11:30 PM</b>, RouterVault only backs up immediately when a change is detected.
+              If nothing changes, it forces a backup once it reaches the <b>Backup Age Limit (days)</b> from Settings.
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="mb-3">
       <label class="form-check">
         <input class="form-check-input" type="checkbox" name="enabled" {% if router.enabled %}checked{% endif %}>
-        <span class="form-check-label">Enabled</span>
+        <span class="form-check-label">Enabled {{ tip("Disable to pause checks and backups for this router.") }}</span>
       </label>
     </div>
   </div>

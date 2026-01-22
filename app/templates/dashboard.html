@@ -4,45 +4,43 @@
   <div class="row align-items-center">
     <div class="col">
       <h2 class="page-title">Router Status</h2>
-      <div class="text-secondary">Latest health, backups, and change signals.</div>
     </div>
   </div>
 </div>
 <div class="card">
   <div class="table-responsive">
-    <table class="table card-table table-vcenter">
-      <thead>
-        <tr>
-          <th>Router</th>
-          <th>Last Backup</th>
-          <th>Last Success</th>
-          <th>Last Error</th>
-          <th>Last Change</th>
-          <th>Links</th>
-        </tr>
-      </thead>
+        <table class="table card-table table-vcenter">
+          <thead>
+            <tr>
+              <th data-bs-toggle="tooltip" title="Router name and status.">Router</th>
+              <th data-bs-toggle="tooltip" title="Quick stats for this router.">KPIs</th>
+              <th data-bs-toggle="tooltip" title="Last time RouterVault created a backup.">Last Backup</th>
+              <th data-bs-toggle="tooltip" title="Last successful backup time.">Last Success</th>
+              <th data-bs-toggle="tooltip" title="Most recent error recorded for this router.">Last Error</th>
+            </tr>
+          </thead>
       <tbody>
         {% for router in routers %}
-        {% set links = parse_links(router.last_backup_links) %}
+        {% set kpi = router_kpis.get(router.id, {"total_backups": 0, "auto_backups": 0, "auto_forced_backups": 0, "manual_backups": 0}) %}
         <tr>
           <td><a href="/routers/{{ router.id }}">{{ router.name }}</a></td>
-          <td>{{ format_ts(router.last_backup_at) }}</td>
           <td>
-            {{ format_ts(router.last_success_at) }}
+            <span class="badge bg-azure text-white" data-bs-toggle="tooltip" title="Total backups stored for this router.">Total: {{ kpi.total_backups }}</span>
+            <span class="badge bg-green text-white" data-bs-toggle="tooltip" title="Backups created automatically by RouterVault (scheduler/change detection).">Auto: {{ kpi.auto_backups }}</span>
+            <span class="badge bg-orange text-white" data-bs-toggle="tooltip" title="Auto backups created because the backup age limit was reached (forced baseline).">Auto forced: {{ kpi.auto_forced_backups }}</span>
+            <span class="badge bg-indigo text-white" data-bs-toggle="tooltip" title="Backups created when you click Manual Backup.">Manual: {{ kpi.manual_backups }}</span>
+          </td>
+          <td>{{ format_ts_ph(router.last_backup_at) }}</td>
+          <td>
+            {{ format_ts_ph(router.last_success_at) }}
             {% if is_stale(router.last_success_at) %}
-            <span class="badge bg-red">Stale</span>
+            <span class="badge bg-red text-white" data-bs-toggle="tooltip" title="Last successful backup is older than the Backup Age Limit (days) setting.">Stale</span>
             {% endif %}
           </td>
           <td>{{ router.last_error if router.last_error else "-" }}</td>
-          <td>{{ format_ts(router.last_config_change_at) }}</td>
-          <td>
-            {% if links.backup %}<a href="{{ links.backup }}">.backup</a>{% endif %}
-            {% if links.rsc %}<a href="{{ links.rsc }}">.rsc</a>{% endif %}
-            {% if not links.backup and not links.rsc %}-{% endif %}
-          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-secondary">No routers registered yet.</td></tr>
+        <tr><td colspan="5" class="text-secondary">No routers registered yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

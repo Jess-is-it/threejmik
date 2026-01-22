@@ -19,17 +19,12 @@ RouterVault is an auto-backup system for MikroTik RouterOS v7 with local storage
    pip install -r requirements.txt
    ```
 
-2. Create `.env` from `.env.example`:
-   ```bash
-   cp .env.example .env
-   ```
-
-3. Run the server:
+2. Run the server:
    ```bash
    uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
-4. Visit `http://localhost:8000` and log in with the basic auth credentials from `.env`.
+3. Visit `http://localhost:8000` and log in (default `admin` / `changeme`), then change credentials in Settings.
 
 ## Docker
 
@@ -54,16 +49,12 @@ docker-compose.yml
 ```
 
 ## Environment Variables
-- `ROUTERVAULT_BASIC_USER`
-- `ROUTERVAULT_BASIC_PASSWORD`
 - `ROUTERVAULT_DB_PATH` (default `/data/routervault.db`)
 - `ROUTERVAULT_TELEGRAM_TOKEN`
-- `ROUTERVAULT_MOCK_MODE` (true/false)
 - `ROUTERVAULT_SCHEDULER_INTERVAL` (seconds)
-- `ROUTERVAULT_LOG_KEYWORDS` (comma-separated)
 - `ROUTERVAULT_STORAGE_PATH` (default `/data/storage`)
 
 ## Notes
 - Backups are stored per router at `/data/storage/<RouterName>/`.
 - Background scheduler runs periodic router checks and baseline checks.
-- In mock mode, MikroTik operations are simulated for UI testing.
+- Mock Mode is configured in the Settings page (simulates MikroTik operations for UI testing).

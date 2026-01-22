@@ -1,6 +1,7 @@
 import httpx
 
 from app.db import get_db
+from app.services.app_settings import is_mock_mode
 from app.services.config import settings
 
 
@@ -18,7 +19,7 @@ def get_default_recipients() -> list[str]:
 
 
 def send_message(chat_ids: list[str], message: str) -> None:
-    if settings.mock_mode:
+    if is_mock_mode():
         return
     token = get_telegram_token()
     if not token:

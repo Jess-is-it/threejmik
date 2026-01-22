@@ -68,7 +68,17 @@ def is_interval_due(router: Dict, now: datetime) -> bool:
     return now - last_dt >= interval
 
 
-def should_force_backup(router: Dict, now: datetime) -> bool:
+def get_global_force_days(default: int = 3) -> int:
+    try:
+        with get_db(settings.db_path) as conn:
+            row = conn.execute("SELECT stale_backup_days FROM settings WHERE id = 1").fetchone()
+        value = int(row["stale_backup_days"]) if row and row["stale_backup_days"] is not None else default
+        return max(1, value)
+    except Exception:
+        return default
+
+
+def should_force_backup(router: Dict, now: datetime, global_force_days: int) -> bool:
     last_success = router.get("last_success_at")
     if not last_success:
         return True
@@ -76,27 +86,28 @@ def should_force_backup(router: Dict, now: datetime) -> bool:
         last_dt = datetime.fromisoformat(last_success)
     except ValueError:
         return True
-    days = router.get("force_backup_every_days") or 7
+    router_days = int(router.get("force_backup_every_days") or global_force_days or 7)
+    days = max(1, min(int(global_force_days or router_days), router_days))
     return now - last_dt >= timedelta(days=days)
 
 
 def detect_change(logs: list[dict], new_hash: str, old_hash: str | None) -> Tuple[bool, str]:
-    changed = new_hash != (old_hash or "")
-    summary = "Hash changed" if changed else "Hash unchanged"
-    keyword_hit = False
-    for entry in logs:
-        message = (entry.get("message") or "").lower()
-        topics = (entry.get("topics") or "").lower()
-        if any(keyword in message or keyword in topics for keyword in settings.log_keywords):
-            keyword_hit = True
-            break
-    if keyword_hit:
-        changed = True
-        summary = "Log keywords indicate change"
-    return changed, summary
+    hash_changed = new_hash != (old_hash or "")
+    logs_indicate_change = bool(logs)
+    if hash_changed:
+        return True, "Hash changed"
+    if logs_indicate_change:
+        return True, "Config-change logs detected"
+    return False, "No changes detected"
 
 
-def run_router_check(router: Dict, baseline_due: bool) -> None:
+def run_router_check(
+    router: Dict,
+    baseline_due: bool,
+    force: bool = False,
+    global_force_days: int | None = None,
+    trigger: str = "auto",
+) -> None:
     client = MikroTikClient(
         host=router["ip"],
         port=router["api_port"],
@@ -106,18 +117,55 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
         ftp_port=router.get("ftp_port") or 21,
     )
     now = datetime.utcnow()
-    logs = client.fetch_logs(router.get("last_log_check_at"))
+    detection_logs = client.fetch_logs(router.get("last_log_check_at"))
+    log_cursor = client.get_router_clock_iso()
+    try:
+        cursor_dt = datetime.fromisoformat(log_cursor) - timedelta(seconds=1)
+        log_cursor = cursor_dt.replace(microsecond=0).isoformat(sep=" ")
+    except ValueError:
+        pass
     export_text = client.export_config()
     normalized = normalize_export(export_text)
     new_hash = sha256_text(normalized)
 
-    changed, summary = detect_change(logs, new_hash, router.get("last_hash"))
-    forced = baseline_due and should_force_backup(router, now)
+    changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
+    if global_force_days is None:
+        global_force_days = get_global_force_days()
+    forced = bool(force) or (baseline_due and should_force_backup(router, now, global_force_days))
     needs_backup = changed or forced
 
     backup_link = ""
     rsc_link = ""
+    backup_logs: list[dict] = []
+    backup_log_cursor: str | None = router.get("last_backup_log_at")
     if needs_backup:
+        backup_logs = client.fetch_logs(backup_log_cursor)
+
+        # If this time window contains too much log noise, keep the backup's
+        # logs focused on the most recent "detection" window (e.g. last 2 hours).
+        max_backup_logs = 200
+        noisy_threshold = 400
+        if len(backup_logs) > noisy_threshold:
+            backup_logs = detection_logs
+            backup_log_cursor = log_cursor
+
+        if len(backup_logs) > max_backup_logs:
+            backup_logs = backup_logs[-max_backup_logs:]
+
+        latest_log_dt: datetime | None = None
+        for entry in backup_logs:
+            logged_at = entry.get("logged_at") or ""
+            try:
+                dt = datetime.fromisoformat(logged_at)
+            except ValueError:
+                continue
+            if latest_log_dt is None or dt > latest_log_dt:
+                latest_log_dt = dt
+        if latest_log_dt is not None:
+            backup_log_cursor = (latest_log_dt + timedelta(seconds=1)).replace(microsecond=0).isoformat(sep=" ")
+        else:
+            backup_log_cursor = log_cursor
+
         stamp = now.strftime("%Y%m%dT%H%M%SZ")
         router_slug = safe_name(router["name"])
         base_name = f"rv_{router_slug}_{stamp}"
@@ -136,7 +184,7 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
         delete_old_local_files(backups_dir, retention_days)
         delete_old_local_files(rsc_dir, retention_days)
 
-        base_url = f"/storage/{router_slug}"
+        base_url = f"/download/{router_slug}"
         backup_link = f"{base_url}/backups/{backup_name}"
         rsc_link = f"{base_url}/rsc/{rsc_name}"
 
@@ -145,6 +193,7 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
             """
             UPDATE routers
             SET last_log_check_at = ?,
+                last_backup_log_at = ?,
                 last_hash = ?,
                 last_backup_at = ?,
                 last_success_at = ?,
@@ -157,7 +206,8 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
             WHERE id = ?
             """,
             (
-                utcnow(),
+                log_cursor,
+                backup_log_cursor if needs_backup else router.get("last_backup_log_at"),
                 new_hash,
                 utcnow() if needs_backup else router.get("last_backup_at"),
                 utcnow() if needs_backup else router.get("last_success_at"),
@@ -175,8 +225,8 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
             cursor = conn.execute(
                 """
                 INSERT INTO backups
-                (router_id, created_at, rsc_hash, rsc_link, backup_link, change_summary, logs, was_forced, was_changed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (router_id, created_at, rsc_hash, rsc_link, backup_link, change_summary, logs, trigger, was_forced, was_changed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     router["id"],
@@ -185,13 +235,15 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
                     rsc_link,
                     backup_link,
                     summary,
-                    json.dumps(logs),
+                    json.dumps(backup_logs),
+                    trigger,
                     1 if forced else 0,
                     1 if changed else 0,
                 ),
             )
             backup_id = cursor.lastrowid
-        for entry in logs:
+        logs_to_store = backup_logs if needs_backup else detection_logs
+        for entry in logs_to_store:
             conn.execute(
                 """
                 INSERT INTO router_logs
@@ -221,6 +273,7 @@ def run_router_check(router: Dict, baseline_due: bool) -> None:
 
 def run_scheduled_checks() -> None:
     now = datetime.utcnow()
+    global_force_days = get_global_force_days()
     with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
@@ -239,7 +292,7 @@ def run_scheduled_checks() -> None:
         interval_due = is_interval_due(router_dict, now)
         if baseline_due or interval_due:
             try:
-                run_router_check(router_dict, baseline_due)
+                run_router_check(router_dict, baseline_due, force=False, global_force_days=global_force_days)
             except Exception as exc:
                 with get_db(settings.db_path) as conn:
                     conn.execute(
