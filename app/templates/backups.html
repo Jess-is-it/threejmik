@@ -1,13 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-header d-print-none">
-  <div class="row align-items-center">
-    <div class="col">
-      <h2 class="page-title">Backups</h2>
-    </div>
-  </div>
-</div>
-
 {% if not routers %}
 <div class="card">
   <div class="card-body text-secondary">No routers added yet.</div>
@@ -20,20 +12,24 @@
         <h3 class="card-title">Routers</h3>
       </div>
           <div class="card-body p-2">
-        <div class="nav nav-pills nav-vertical" role="tablist">
-          {% for router in routers %}
-          <a
-            class="nav-link rv-router-tab {% if router.id == selected_router_id %}active{% endif %}"
-            data-bs-toggle="tab"
-            role="tab"
-            href="#tab-router-{{ router.id }}"
-            aria-selected="{% if router.id == selected_router_id %}true{% else %}false{% endif %}"
-          >
-            <span class="rv-router-tab-name fw-bold">{{ router.name }}</span>
-          </a>
-          {% endfor %}
-        </div>
-      </div>
+                <div class="nav nav-pills nav-vertical" role="tablist">
+                  {% for router in routers %}
+                  {% set unread = router_unread.get(router.id, 0) %}
+                  <a
+                    class="nav-link rv-router-tab {% if router.id == selected_router_id %}active{% endif %}"
+                    data-bs-toggle="tab"
+                    role="tab"
+                    href="#tab-router-{{ router.id }}"
+                    aria-selected="{% if router.id == selected_router_id %}true{% else %}false{% endif %}"
+                  >
+                    <span class="rv-router-tab-name fw-bold">{{ router.name }}</span>
+                    {% if unread > 0 %}
+                    <span class="rv-router-unread ms-auto" data-router-id="{{ router.id }}">{{ unread }}</span>
+                    {% endif %}
+                  </a>
+                  {% endfor %}
+                </div>
+              </div>
 	    </div>
   </div>
   <div class="col-12 col-md-9">
@@ -56,58 +52,139 @@
 	                <span class="badge bg-secondary-lt rv-badge">FTP: {{ router.ftp_port or 21 }}</span>
 	              </div>
 	            </div>
-	            <div class="ms-auto d-flex align-items-center gap-2">
+            <div class="ms-auto d-flex align-items-center gap-2 flex-wrap justify-content-end">
+              <div class="input-icon rv-search-wrap">
+                <span class="input-icon-addon">
+                  <i class="ti ti-search"></i>
+                </span>
+                <input
+                  type="search"
+                  class="form-control rv-search-input"
+                  placeholder="Search backups..."
+                  data-router-id="{{ router.id }}"
+                />
+              </div>
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle rv-filter-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Filter
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-2 rv-backup-filter-menu" data-router-id="{{ router.id }}">
+                  <button class="dropdown-item rv-backup-filter-option active" type="button" data-value="all">All</button>
+                  <button class="dropdown-item rv-backup-filter-option" type="button" data-value="manual">Manual</button>
+                  <button class="dropdown-item rv-backup-filter-option" type="button" data-value="auto">Automatic</button>
+                  <button class="dropdown-item rv-backup-filter-option" type="button" data-value="auto_forced">Auto forced</button>
+                  <button class="dropdown-item rv-backup-filter-option" type="button" data-value="important">Important</button>
+                </div>
+              </div>
 	              <form method="post" action="/routers/{{ router.id }}/backup?next=/backups?router_id={{ router.id }}">
 	                <button class="btn btn-primary force-backup-btn" type="submit" data-router-id="{{ router.id }}" disabled>Manual Backup</button>
 	              </form>
 	            </div>
 	          </div>
-          <div class="table-responsive">
-            <table class="table card-table table-vcenter">
-              <thead>
-                <tr>
-                  <th class="rv-col-date" data-bs-toggle="tooltip" title="When this backup was created.">Backup Date</th>
-                  <th class="rv-col-files" data-bs-toggle="tooltip" title="Download the .backup and .rsc files stored on the server.">Files</th>
-                  <th data-bs-toggle="tooltip" title="Router logs captured around the change.">Logs</th>
-                  <th class="text-end rv-col-actions">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% set router_backups = backups_by_router.get(router.id, []) %}
-                {% for backup in router_backups %}
-                <tr>
-                  <td class="rv-col-date">{{ format_ts_ph(backup.created_at) }}</td>
-                  <td class="rv-col-files">
-                    <div class="btn-list flex-nowrap">
-                      {% if backup.backup_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.backup_link|replace('/storage/','/download/') }}" download>.backup</a>{% endif %}
-                      {% if backup.rsc_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.rsc_link|replace('/storage/','/download/') }}" download>.rsc</a>{% endif %}
-                    </div>
-                  </td>
-                  <td>
-                    {% if backup.logs_preview %}
-                    <button class="btn btn-link p-0 text-start rv-log-preview" type="button" data-bs-toggle="modal" data-bs-target="#logs-{{ backup.id }}">
-                      {{ backup.logs_preview }}
-                    </button>
-                    {% else %}
-                    <span class="text-secondary">No logs</span>
-                    {% endif %}
-                  </td>
-                  <td class="text-end rv-col-actions">
-                    <div class="btn-list flex-nowrap justify-content-end">
-                      <button class="btn btn-warning" type="button" data-bs-toggle="modal" data-bs-target="#restore-{{ backup.id }}" aria-label="Restore" data-bs-title="Restore">
-                        <i class="ti ti-history"></i>
+          {% set stats = router_stats.get(router.id, {}) %}
+          <div class="card-body pt-2 pb-2">
+            <div class="row g-2">
+              <div class="col-12 col-xl-6 d-flex flex-wrap gap-2 align-items-center">
+                <span class="badge bg-secondary-lt text-secondary">Presets</span>
+                <span class="badge bg-light text-secondary border">Check every {{ stats.check_interval_hours }}h</span>
+                <span class="badge bg-light text-secondary border">Daily {{ stats.daily_baseline_time or '-' }}</span>
+                <span class="badge bg-light text-secondary border">Force after {{ stats.force_days }}d</span>
+                <span class="badge bg-light text-secondary border">Retention {{ stats.retention_days }}d</span>
+              </div>
+              <div class="col-12 col-xl-6">
+                <div class="d-flex flex-nowrap gap-2 align-items-center justify-content-xl-end justify-content-start text-xl-end">
+                  <span class="badge bg-azure-lt text-azure border">Last check: {{ format_ts_ph(stats.last_check_at) }}</span>
+                  <span class="badge bg-green-lt text-green border">Last auto: {{ format_ts_ph(stats.last_auto_backup_at) }}</span>
+                  <span class="badge bg-orange-lt text-orange border">Last auto forced: {{ format_ts_ph(stats.last_auto_forced_at) }}</span>
+                  <span class="badge bg-secondary text-white">Total: {{ stats.total_backups }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-body pt-0">
+            <div class="table-responsive">
+              <table class="table card-table table-vcenter rv-backups-table">
+                <thead>
+                  <tr>
+                    <th class="rv-col-date rv-sortable text-uppercase" data-bs-toggle="tooltip" title="When this backup was created.">
+                      <button class="rv-sort-btn text-uppercase" type="button" data-router-id="{{ router.id }}" data-sort-key="date">
+                        Backup Date
+                        <i class="ti ti-arrows-sort rv-sort-icon"></i>
                       </button>
-                      <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#delete-{{ backup.id }}" aria-label="Delete" data-bs-title="Delete">
-                        <i class="ti ti-trash"></i>
+                    </th>
+                    <th class="rv-col-type rv-sortable text-uppercase" data-bs-toggle="tooltip" title="How this backup was created.">
+                      <button class="rv-sort-btn text-uppercase" type="button" data-router-id="{{ router.id }}" data-sort-key="type">
+                        Type
+                        <i class="ti ti-arrows-sort rv-sort-icon"></i>
                       </button>
-                    </div>
-                  </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="4" class="text-secondary">No backups yet for this router.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
+                    </th>
+                    <th class="rv-col-files" data-bs-toggle="tooltip" title="Download the .backup and .rsc files stored on the server.">Files</th>
+                    <th data-bs-toggle="tooltip" title="Router logs captured around the change.">Logs</th>
+                    <th class="text-end rv-col-actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% set router_backups = backups_by_router.get(router.id, []) %}
+                  {% for backup in router_backups %}
+                  {% set backup_type = "manual" if backup.trigger == "manual" else ("auto_forced" if backup.was_forced else "auto") %}
+                  <tr data-backup-type="{{ backup_type }}" data-backup-ts="{{ backup.created_at }}" data-backup-important="{{ 1 if backup.important else 0 }}">
+                    <td class="rv-col-date">{{ format_ts_ph(backup.created_at) }}</td>
+                    <td class="rv-col-type">
+                      {% if backup.important %}
+                        <span class="badge bg-yellow text-dark me-1">Important</span>
+                      {% endif %}
+                      {% if backup.trigger == "manual" %}
+                        <span class="badge bg-indigo text-white">Manual</span>
+                      {% elif backup.was_forced %}
+                        <span class="badge bg-orange text-white">Auto forced</span>
+                      {% else %}
+                        <span class="badge bg-green text-white">Automatic</span>
+                      {% endif %}
+                    </td>
+                    <td class="rv-col-files">
+                      <div class="btn-list flex-nowrap">
+                        {% if backup.backup_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.backup_link|replace('/storage/','/download/') }}" download>.backup</a>{% endif %}
+                        {% if backup.rsc_link %}<a class="btn btn-outline-secondary btn-sm" href="{{ backup.rsc_link|replace('/storage/','/download/') }}" download>.rsc</a>{% endif %}
+                      </div>
+                    </td>
+                    <td>
+                      {% if backup.logs_preview %}
+                      <button class="btn btn-link p-0 text-start rv-log-preview" type="button" data-bs-toggle="modal" data-bs-target="#logs-{{ backup.id }}">
+                        {{ backup.logs_preview }}
+                      </button>
+                      {% else %}
+                      <span class="text-secondary">No logs</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-end rv-col-actions">
+                      <div class="btn-list flex-nowrap justify-content-end">
+                        <form method="post" action="/backups/{{ backup.id }}/toggle-important">
+                          {% if backup.important %}
+                          <button class="btn btn-warning" type="submit" aria-label="Unmark important" data-bs-title="Unmark important">
+                            <i class="ti ti-star"></i>
+                          </button>
+                          {% else %}
+                          <button class="btn btn-outline-warning" type="submit" aria-label="Mark important" data-bs-title="Mark important">
+                            <i class="ti ti-star"></i>
+                          </button>
+                          {% endif %}
+                        </form>
+                        <button class="btn btn-warning" type="button" data-bs-toggle="modal" data-bs-target="#restore-{{ backup.id }}" aria-label="Restore" data-bs-title="Restore">
+                          <i class="ti ti-history"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#delete-{{ backup.id }}" aria-label="Delete" data-bs-title="Delete">
+                          <i class="ti ti-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="5" class="text-secondary">No backups yet for this router.</td></tr>
+                  {% endfor %}
+                  <tr class="rv-no-match d-none"><td colspan="5" class="text-secondary">No backups match this filter.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -256,10 +333,72 @@
       return routerId || null;
     };
 
+    const getSearchTerm = (routerId) => {
+      const input = document.querySelector(`.rv-search-input[data-router-id="${routerId}"]`);
+      return (input?.value || "").trim().toLowerCase();
+    };
+
+    const getActiveFilter = (routerId) => {
+      const active = document.querySelector(
+        `.rv-backup-filter-menu[data-router-id="${routerId}"] .rv-backup-filter-option.active`
+      );
+      return active?.getAttribute("data-value") || "all";
+    };
+
+    const filterBackups = (routerId, filterValue, searchTerm) => {
+      const table = document.querySelector(`#tab-router-${routerId} table`);
+      if (!table) return;
+      const rows = table.querySelectorAll("tbody tr[data-backup-type]");
+      if (rows.length === 0) return;
+      const term = (searchTerm || "").toLowerCase();
+      let visible = 0;
+      rows.forEach((row) => {
+        const type = row.getAttribute("data-backup-type");
+        const isImportant = row.getAttribute("data-backup-important") === "1";
+        let matchesType = false;
+        if (filterValue === "all") {
+          matchesType = true;
+        } else if (filterValue === "important") {
+          matchesType = isImportant;
+        } else {
+          matchesType = filterValue === type;
+        }
+        const text = row.innerText.toLowerCase();
+        const matchesSearch = !term || text.includes(term);
+        const matches = matchesType && matchesSearch;
+        row.classList.toggle("d-none", !matches);
+        if (matches) visible += 1;
+      });
+      const emptyRow = table.querySelector(".rv-no-match");
+      if (emptyRow) {
+        emptyRow.classList.toggle("d-none", visible !== 0);
+      }
+      if (visible > 0) {
+        const activeSort = table.querySelector(".rv-sort-btn.active");
+        if (activeSort) {
+          sortTable(table, activeSort.getAttribute("data-sort-key"), activeSort.getAttribute("data-sort-order") || "desc", false);
+        }
+      }
+    };
+
+    const markBackupsViewed = async (routerId) => {
+      try {
+        await fetch(`/routers/${routerId}/backups/viewed`, { method: "POST" });
+      } catch (err) {
+        // ignore
+      }
+    };
+
     const init = () => {
       const routerId = activeTabRouterId();
       if (routerId) {
         checkRouter(routerId);
+        applyFilter(routerId, "all");
+        const badge = document.querySelector(`.rv-router-unread[data-router-id="${routerId}"]`);
+        if (badge) {
+          badge.classList.add("d-none");
+        }
+        markBackupsViewed(routerId);
       }
     };
 
@@ -271,7 +410,92 @@
       const routerId = href.replace("#tab-router-", "");
       if (routerId) {
         checkRouter(routerId);
+        const badge = document.querySelector(`.rv-router-unread[data-router-id="${routerId}"]`);
+        if (badge) {
+          badge.classList.add("d-none");
+        }
+        markBackupsViewed(routerId);
       }
+    });
+
+    function applyFilter(routerId, value) {
+      const menu = document.querySelector(`.rv-backup-filter-menu[data-router-id="${routerId}"]`);
+      if (menu) {
+        menu.querySelectorAll(".rv-backup-filter-option").forEach((btn) => {
+          const isActive = btn.getAttribute("data-value") === value;
+          btn.classList.toggle("active", isActive);
+        });
+      }
+      filterBackups(routerId, value, getSearchTerm(routerId));
+    }
+
+    document.querySelectorAll(".rv-backup-filter-menu").forEach((menu) => {
+      const routerId = menu.getAttribute("data-router-id");
+      menu.querySelectorAll(".rv-backup-filter-option").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const value = btn.getAttribute("data-value") || "all";
+          applyFilter(routerId, value);
+        });
+      });
+    });
+
+    document.querySelectorAll(".rv-search-input").forEach((input) => {
+      const routerId = input.getAttribute("data-router-id");
+      input.addEventListener("input", () => {
+        const activeType = getActiveFilter(routerId);
+        filterBackups(routerId, activeType, getSearchTerm(routerId));
+      });
+    });
+
+    const valueForSort = (row, key) => {
+      if (key === "date") {
+        return row.getAttribute("data-backup-ts") || "";
+      }
+      if (key === "type") {
+        return row.getAttribute("data-backup-type") || "";
+      }
+      return row.innerText || "";
+    };
+
+    const sortTable = (table, key, order, updateButtons = true) => {
+      const rows = Array.from(table.querySelectorAll("tbody tr[data-backup-type]"));
+      const keepRows = table.querySelectorAll("tbody tr.rv-no-match");
+      rows.sort((a, b) => {
+        const va = valueForSort(a, key);
+        const vb = valueForSort(b, key);
+        if (va === vb) return 0;
+        const cmp = va > vb ? 1 : -1;
+        return order === "asc" ? cmp : -cmp;
+      });
+      const tbody = table.querySelector("tbody");
+      rows.forEach((row) => tbody.appendChild(row));
+      keepRows.forEach((r) => tbody.appendChild(r));
+      if (updateButtons) {
+        table.querySelectorAll(".rv-sort-btn").forEach((btn) => {
+          btn.classList.remove("active");
+          btn.setAttribute("data-sort-order", "desc");
+          const icon = btn.querySelector(".rv-sort-icon");
+          if (icon) icon.className = "ti ti-arrows-sort rv-sort-icon";
+        });
+        const active = table.querySelector(`.rv-sort-btn[data-sort-key="${key}"]`);
+        if (active) {
+          active.classList.add("active");
+          active.setAttribute("data-sort-order", order);
+          const icon = active.querySelector(".rv-sort-icon");
+          if (icon) icon.className = order === "asc" ? "ti ti-sort-ascending rv-sort-icon" : "ti ti-sort-descending rv-sort-icon";
+        }
+      }
+    };
+
+    document.querySelectorAll(".rv-sort-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const table = btn.closest("table");
+        if (!table) return;
+        const key = btn.getAttribute("data-sort-key");
+        const current = btn.getAttribute("data-sort-order") || "desc";
+        const next = current === "asc" ? "desc" : "asc";
+        sortTable(table, key, next, true);
+      });
     });
 
     init();

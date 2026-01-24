@@ -1,12 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-header d-print-none">
-  <div class="row align-items-center">
-    <div class="col">
-      <h2 class="page-title">Routers</h2>
-    </div>
-  </div>
-</div>
 <ul class="nav nav-tabs mb-3" data-bs-toggle="tabs">
   <li class="nav-item">
     <a href="#tab-add" class="nav-link active" data-bs-toggle="tab">Add Router</a>
@@ -48,9 +41,15 @@
                 <td>{{ router.username }}</td>
                 <td>********</td>
                 <td>{{ router.ftp_port or 21 }}</td>
-                <td>
-                  <button class="btn btn-outline-primary btn-sm test-api-saved" type="button" data-router-id="{{ router.id }}">Test API</button>
-                  <button class="btn btn-outline-danger btn-sm" type="submit" formmethod="post" formaction="/routers/{{ router.id }}/delete" formnovalidate onclick="return confirm('Delete this router?')">Delete</button>
+                <td class="text-nowrap">
+                  <div class="btn-list flex-nowrap">
+                    <button class="btn btn-outline-primary btn-icon rv-icon-btn test-api-saved" type="button" data-router-id="{{ router.id }}" aria-label="Test API" data-bs-toggle="tooltip" title="Test API">
+                      <i class="ti ti-activity"></i>
+                    </button>
+                    <button class="btn btn-outline-danger btn-icon rv-icon-btn" type="submit" formmethod="post" formaction="/routers/{{ router.id }}/delete" formnovalidate onclick="return confirm('Delete this router?')" aria-label="Delete" data-bs-toggle="tooltip" title="Delete">
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
               {% endfor %}
@@ -80,40 +79,17 @@
   <div class="tab-pane" id="tab-presets">
     <form method="post" action="/routers/presets">
       <div class="card">
-        <div class="card-header"><h3 class="card-title">Router Presets</h3></div>
-        <div class="card-body">
-          <div class="alert alert-info" role="alert">
-            <div class="d-flex">
-              <div class="me-2"><i class="ti ti-info-circle"></i></div>
-              <div>
-                <div class="d-flex align-items-center justify-content-between gap-2">
-                  <div class="fw-bold">How auto backups work</div>
-                  <button
-                    id="toggle-auto-backup-note"
-                    type="button"
-                    class="btn btn-sm btn-icon border-0 bg-transparent text-secondary"
-                    data-bs-toggle="collapse"
-                    data-bs-target="#auto-backup-note"
-                    aria-expanded="true"
-                    aria-controls="auto-backup-note"
-                  >
-                    <i class="ti ti-chevron-up"></i>
-                  </button>
-                </div>
-                <div class="text-secondary collapse show" id="auto-backup-note">
-                  RouterVault checks for configuration changes every <b>Check for changes (hours)</b>. If it detects a change, it backs up immediately.
-                  If there are no changes, it won’t create a backup every time — instead, it still makes sure you get a fresh backup at least every
-                  <b>Backup Age Limit (days)</b> by forcing one at the <b>Daily backup time</b>.
-                  <br><br>
-                  <b>Example:</b> Backup Age Limit = <b>3 days</b>. Today is <b>Jan 23</b>. Daily backup time is <b>11:30 PM</b>, and change checks run every <b>2 hours</b>.
-                  On <b>Jan 25</b> at <b>11:30 PM</b>, if there are still no changes, RouterVault skips the backup. On <b>Jan 26</b> at <b>11:30 PM</b>, if there are still no changes,
-                  RouterVault forces a backup because it has been <b>3 days</b> since the last successful backup.
-                  <br><br>
-                  You can change the <a href="/settings#backup-age-days">Backup Age Limit</a> in Settings.
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title mb-0">Router Presets</h3>
+          <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
+            data-bs-toggle="modal"
+            data-bs-target="#auto-backup-modal"
+          >
+            <i class="ti ti-question-mark"></i>
+            Auto backup guide
+          </button>
         </div>
         <div class="table-responsive">
           <table class="table card-table table-vcenter">
@@ -139,14 +115,11 @@
                 <td><input class="form-control" name="daily_baseline_time_{{ router.id }}" value="{{ router.daily_baseline_time }}" placeholder="HH:MM" data-bs-toggle="tooltip" title="Time in HH:MM (24h)."></td>
                 <td><input class="form-control" type="number" name="force_backup_every_days_{{ router.id }}" value="{{ router.force_backup_every_days }}" min="1" data-bs-toggle="tooltip" title="Force backup after N days."></td>
                 <td>
-                  <label class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="enabled_{{ router.id }}" value="1" {% if router.enabled %}checked{% endif %}>
-                    <span class="form-check-label">Enable</span>
+                  <label class="form-check form-switch mb-0"
+                    title="Currently {% if router.enabled %}enabled{% else %}disabled{% endif %}. Toggle router scheduling">
+                    <input class="form-check-input" type="checkbox" name="enabled_{{ router.id }}" value="1" {% if router.enabled %}checked{% endif %}>
                   </label>
-                  <label class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="enabled_{{ router.id }}" value="0" {% if not router.enabled %}checked{% endif %}>
-                    <span class="form-check-label">Disable</span>
-                  </label>
+                  <input type="hidden" name="enabled_hidden_{{ router.id }}" value="0">
                 </td>
               </tr>
               {% else %}
@@ -162,6 +135,37 @@
         </div>
       </div>
     </form>
+  </div>
+</div>
+<div class="modal modal-blur fade" id="auto-backup-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title d-flex align-items-center gap-2">
+          <i class="ti ti-question-mark text-secondary"></i>
+          Auto backup guide
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-secondary">
+        <p>RouterVault checks for configuration changes every <b>Check for changes (hours)</b>. If it detects a change, it backs up immediately.</p>
+        <p>If there are no changes, it still makes sure you get a fresh backup at least every <b>Force backup after (days)</b> by forcing one at the <b>Daily backup time</b>.</p>
+        <hr>
+        <p class="fw-bold mb-2">Example (real-world timing)</p>
+        <ul class="ps-3">
+          <li><b>Force backup after:</b> 3 days</li>
+          <li><b>Daily backup time:</b> 23:30 (Asia/Manila)</li>
+          <li><b>Check for changes:</b> every 2 hours</li>
+          <li><b>Last successful backup:</b> Jan 23, 22:32 PH</li>
+        </ul>
+        <p class="mb-1">- Jan 24/25: No changes; baselines at 23:30 see the last backup is 1–2 days old, so no forced backup.</p>
+        <p class="mb-1">- Jan 26: At 23:30, last backup is older than 3 days → RouterVault creates an <b>Auto forced</b> backup.</p>
+        <p class="mb-0">Any detected config change on an interval check would trigger an immediate <b>Automatic</b> backup and reset the clock.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Got it</button>
+      </div>
+    </div>
   </div>
 </div>
 <script>

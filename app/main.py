@@ -176,8 +176,6 @@ def dashboard(request: Request):
             GROUP BY router_id
             """
         ).fetchall()
-        settings_row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
-    stale_days = settings_row["stale_backup_days"] if settings_row else 3
     router_kpis = {
         int(row["router_id"]): {
             "total_backups": int(row["total_backups"] or 0),
@@ -187,6 +185,11 @@ def dashboard(request: Request):
         }
         for row in kpi_rows
     }
+
+    def is_router_stale(router_row):
+        days = int(router_row["force_backup_every_days"] or 7)
+        return is_stale(router_row["last_success_at"], days)
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -195,9 +198,8 @@ def dashboard(request: Request):
             "routers": routers,
             "format_ts": format_ts,
             "format_ts_ph": format_ts_ph,
-            "is_stale": lambda ts: is_stale(ts, stale_days),
+            "is_stale_router": is_router_stale,
             "parse_links": parse_links,
-            "stale_days": stale_days,
             "router_kpis": router_kpis,
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
@@ -266,10 +268,45 @@ def list_backups(request: Request):
             except json.JSONDecodeError:
                 logs_text = backup["logs"]
                 logs_preview = "\n".join((backup["logs"] or "").splitlines()[:2])
-        parsed.append({**dict(backup), "logs_text": logs_text, "logs_preview": logs_preview})
+        bdict = {**dict(backup)}
+        bdict["important"] = int(bdict.get("important") or 0)
+        parsed.append({**bdict, "logs_text": logs_text, "logs_preview": logs_preview})
     backups_by_router = {router["id"]: [] for router in routers}
     for backup in parsed:
         backups_by_router.setdefault(backup["router_id"], []).append(backup)
+
+    router_stats = {}
+    router_unread = {}
+    for router in routers:
+        router_dict = dict(router)
+        latest_auto = None
+        latest_auto_forced = None
+        total_backups = len(backups_by_router.get(router["id"], []))
+        for entry in backups_by_router.get(router["id"], []):
+            if entry["trigger"] == "auto" and entry.get("was_forced"):
+                latest_auto_forced = entry["created_at"]
+            if entry["trigger"] == "auto" and not entry.get("was_forced"):
+                latest_auto = entry["created_at"]
+            if latest_auto and latest_auto_forced:
+                break
+        router_stats[router["id"]] = {
+            "retention_days": router_dict.get("retention_days"),
+            "check_interval_hours": router_dict.get("backup_check_interval_hours"),
+            "daily_baseline_time": router_dict.get("daily_baseline_time"),
+            "force_days": router_dict.get("force_backup_every_days"),
+            "last_check_at": router_dict.get("last_check_at"),
+            "last_auto_backup_at": latest_auto,
+            "last_auto_forced_at": latest_auto_forced,
+            "total_backups": total_backups,
+        }
+        last_seen = router_dict.get("last_backups_viewed_at") or router_dict.get("last_backup_at") or router_dict.get(
+            "last_success_at"
+        )
+        unread = 0
+        for entry in backups_by_router.get(router["id"], []):
+            if not last_seen or entry["created_at"] > last_seen:
+                unread += 1
+        router_unread[router["id"]] = unread
     return templates.TemplateResponse(
         "backups.html",
         {
@@ -280,6 +317,8 @@ def list_backups(request: Request):
             "selected_router_id": selected_router_id,
             "backups_by_router": backups_by_router,
             "all_backups": parsed,
+            "router_stats": router_stats,
+            "router_unread": router_unread,
             "format_ts_ph": format_ts_ph,
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
@@ -324,6 +363,31 @@ def delete_backup(backup_id: int):
                 (utcnow(), router_id),
             )
     return RedirectResponse("/backups?notice=backup_deleted", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/backups/{backup_id}/toggle-important", dependencies=[Depends(require_basic_auth)])
+def toggle_backup_important(backup_id: int):
+    with get_db(settings.db_path) as conn:
+        backup = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+        if not backup:
+            raise HTTPException(status_code=404, detail="Backup not found")
+        router_id = int(backup["router_id"])
+        new_val = 0 if int(backup["important"] or 0) else 1
+        conn.execute("UPDATE backups SET important = ? WHERE id = ?", (new_val, backup_id))
+    return RedirectResponse(f"/backups?router_id={router_id}&notice=backup_updated", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/routers/{router_id}/backups/viewed", dependencies=[Depends(require_basic_auth)])
+def mark_backups_viewed(router_id: int):
+    with get_db(settings.db_path) as conn:
+        router = conn.execute("SELECT id FROM routers WHERE id = ?", (router_id,)).fetchone()
+        if not router:
+            raise HTTPException(status_code=404, detail="Router not found")
+        conn.execute(
+            "UPDATE routers SET last_backups_viewed_at = ?, updated_at = ? WHERE id = ?",
+            (utcnow(), utcnow(), router_id),
+        )
+    return {"ok": True}
 
 
 @app.post("/backups/{backup_id}/restore", dependencies=[Depends(require_basic_auth)])
@@ -840,7 +904,6 @@ def settings_page(request: Request):
 
 @app.post("/settings", dependencies=[Depends(require_basic_auth)])
 def update_settings(
-    stale_backup_days: int = Form(3),
     telegram_token: str = Form(""),
     telegram_recipients: str = Form(""),
     basic_user: str = Form(""),
@@ -855,8 +918,7 @@ def update_settings(
         conn.execute(
             """
             UPDATE settings
-            SET stale_backup_days = ?,
-                telegram_token = ?,
+            SET telegram_token = ?,
                 telegram_recipients = ?,
                 basic_user = ?,
                 basic_password = ?,
@@ -865,7 +927,6 @@ def update_settings(
             WHERE id = 1
             """,
             (
-                stale_backup_days,
                 telegram_token.strip(),
                 telegram_recipients.strip(),
                 new_basic_user,
@@ -873,8 +934,55 @@ def update_settings(
                 1 if mock_mode else 0,
                 1 if export_show_sensitive else 0,
             ),
-        )
+    )
     return RedirectResponse("/settings?notice=settings_saved", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/settings/format-backups", dependencies=[Depends(require_basic_auth)])
+def format_backups(confirm_word: str = Form(""), include_routers: Optional[str] = Form(None)):
+    if (confirm_word or "").strip().lower() != "format":
+        return RedirectResponse("/settings?error=confirmation_required", status_code=HTTP_303_SEE_OTHER)
+    # Delete DB records
+    with get_db(settings.db_path) as conn:
+        conn.execute("DELETE FROM backups")
+        conn.execute("DELETE FROM router_logs")
+        if include_routers:
+            conn.execute("DELETE FROM routers")
+        else:
+            conn.execute(
+                """
+                UPDATE routers
+                SET last_backup_log_at = NULL,
+                    last_backup_at = NULL,
+                    last_success_at = NULL,
+                    last_log_check_at = NULL,
+                    last_backup_links = NULL,
+                    last_hash = NULL,
+                    last_config_change_at = NULL,
+                    last_backup_links = NULL,
+                    last_check_at = NULL,
+                    last_baseline_at = NULL,
+                    updated_at = ?
+                """,
+                (utcnow(),),
+            )
+    # Delete stored backup/rsc files on disk
+    try:
+        base = settings.storage_path
+        if base.exists():
+            for router_dir in base.iterdir():
+                if not router_dir.is_dir():
+                    continue
+                for sub in ("backups", "rsc"):
+                    folder = router_dir / sub
+                    if folder.exists():
+                        for entry in folder.iterdir():
+                            if entry.is_file():
+                                entry.unlink(missing_ok=True)
+    except Exception:
+        # ignore filesystem errors, DB already cleared
+        pass
+    return RedirectResponse("/settings?notice=backups_formatted", status_code=HTTP_303_SEE_OTHER)
 
 
 @app.get("/health")

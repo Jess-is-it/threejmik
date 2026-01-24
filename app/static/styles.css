@@ -10,7 +10,7 @@
 
 .rv-topbar {
   position: sticky;
-  top: 0;
+  top: 64px;
   z-index: 1025;
   background: var(--tblr-bg-surface);
   border-bottom: 1px solid var(--tblr-border-color-translucent);
@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 0;
+  padding: 6px 0;
   font-size: 0.75rem;
   white-space: nowrap;
 }
@@ -108,6 +108,11 @@ pre {
   white-space: nowrap;
 }
 
+.rv-col-type {
+  width: 140px;
+  white-space: nowrap;
+}
+
 .rv-col-date {
   width: 210px;
   white-space: nowrap;
@@ -116,6 +121,115 @@ pre {
 .rv-col-actions {
   width: 190px;
   white-space: nowrap;
+}
+
+.rv-sortable {
+  vertical-align: middle;
+}
+
+.rv-sort-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: inherit;
+}
+
+.rv-sort-btn:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.rv-sort-btn:hover {
+  text-decoration: none;
+  color: inherit;
+}
+
+.rv-sort-icon {
+  font-size: 1rem;
+}
+
+.rv-backups-table th {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.rv-router-unread {
+  background: var(--tblr-red);
+  color: #fff;
+  border-radius: 999px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.rv-icon-btn {
+  width: 40px;
+  height: 40px;
+  padding: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page {
+  min-height: 100vh;
+}
+
+.rv-main-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  background: var(--tblr-bg-surface);
+  border-bottom: 1px solid var(--tblr-border-color);
+}
+
+.rv-nav-link {
+  font-weight: 600;
+  color: var(--tblr-body-color);
+  padding-bottom: 6px;
+  border-bottom: 2px solid transparent;
+}
+
+.rv-nav-link.active {
+  color: var(--tblr-primary);
+  border-color: var(--tblr-primary);
+}
+
+.page-wrapper {
+  width: 100%;
+}
+
+.rv-filter-btn {
+  padding-left: 24px;
+  padding-right: 24px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.rv-backup-filter-menu {
+  min-width: 180px;
+}
+
+.rv-search-wrap {
+  min-width: 220px;
+}
+
+.rv-search-input {
+  min-height: 38px;
 }
 
 @keyframes rv-dot-pulse {

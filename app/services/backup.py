@@ -7,6 +7,7 @@ from app.db import get_db, utcnow
 from app.services.config import settings
 from app.services.mikrotik import MikroTikClient, normalize_export, sha256_text
 from app.services.telegram import get_default_recipients, send_message
+from zoneinfo import ZoneInfo
 
 
 def parse_recipients(raw: str) -> list[str]:
@@ -26,12 +27,15 @@ def ensure_storage_dirs(router_name: str) -> tuple[Path, Path, Path]:
     return router_dir, backups_dir, rsc_dir
 
 
-def delete_old_local_files(folder: Path, retention_days: int) -> None:
+def delete_old_local_files(folder: Path, retention_days: int, protected: set[str] | None = None) -> None:
     cutoff = datetime.utcnow().timestamp() - retention_days * 86400
+    protected = protected or set()
     for entry in folder.iterdir():
         if not entry.is_file():
             continue
         if not entry.name.startswith("rv_"):
+            continue
+        if entry.name in protected:
             continue
         if entry.stat().st_mtime <= cutoff:
             entry.unlink(missing_ok=True)
@@ -48,12 +52,18 @@ def is_baseline_due(router: Dict, now: datetime) -> bool:
     last_baseline_date = None
     if last_baseline:
         try:
-            last_baseline_date = datetime.fromisoformat(last_baseline).date()
+            last_dt = datetime.fromisoformat(last_baseline)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=ZoneInfo("UTC"))
+            last_baseline_date = last_dt.astimezone(ZoneInfo("Asia/Manila")).date()
         except ValueError:
             last_baseline_date = None
-    if last_baseline_date == now.date():
+    now_ph = now
+    if now_ph.tzinfo is None:
+        now_ph = now_ph.replace(tzinfo=ZoneInfo("Asia/Manila"))
+    if last_baseline_date == now_ph.date():
         return False
-    return now.time() >= baseline_time
+    return now_ph.time() >= baseline_time
 
 
 def is_interval_due(router: Dict, now: datetime) -> bool:
@@ -68,17 +78,7 @@ def is_interval_due(router: Dict, now: datetime) -> bool:
     return now - last_dt >= interval
 
 
-def get_global_force_days(default: int = 3) -> int:
-    try:
-        with get_db(settings.db_path) as conn:
-            row = conn.execute("SELECT stale_backup_days FROM settings WHERE id = 1").fetchone()
-        value = int(row["stale_backup_days"]) if row and row["stale_backup_days"] is not None else default
-        return max(1, value)
-    except Exception:
-        return default
-
-
-def should_force_backup(router: Dict, now: datetime, global_force_days: int) -> bool:
+def should_force_backup(router: Dict, now: datetime) -> bool:
     last_success = router.get("last_success_at")
     if not last_success:
         return True
@@ -86,8 +86,8 @@ def should_force_backup(router: Dict, now: datetime, global_force_days: int) -> 
         last_dt = datetime.fromisoformat(last_success)
     except ValueError:
         return True
-    router_days = int(router.get("force_backup_every_days") or global_force_days or 7)
-    days = max(1, min(int(global_force_days or router_days), router_days))
+    router_days = int(router.get("force_backup_every_days") or 7)
+    days = max(1, router_days)
     return now - last_dt >= timedelta(days=days)
 
 
@@ -105,7 +105,6 @@ def run_router_check(
     router: Dict,
     baseline_due: bool,
     force: bool = False,
-    global_force_days: int | None = None,
     trigger: str = "auto",
 ) -> None:
     client = MikroTikClient(
@@ -129,15 +128,13 @@ def run_router_check(
     new_hash = sha256_text(normalized)
 
     changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
-    if global_force_days is None:
-        global_force_days = get_global_force_days()
-    forced = bool(force) or (baseline_due and should_force_backup(router, now, global_force_days))
+    forced = bool(force) or (baseline_due and should_force_backup(router, now))
     needs_backup = changed or forced
 
     backup_link = ""
     rsc_link = ""
     backup_logs: list[dict] = []
-    backup_log_cursor: str | None = router.get("last_backup_log_at")
+    backup_log_cursor: str | None = router.get("last_backup_log_at") or router.get("last_backup_at") or router.get("last_success_at")
     if needs_backup:
         backup_logs = client.fetch_logs(backup_log_cursor)
 
@@ -181,8 +178,28 @@ def run_router_check(
         rsc_path.write_bytes(rsc_bytes)
 
         retention_days = router.get("retention_days") or 30
-        delete_old_local_files(backups_dir, retention_days)
-        delete_old_local_files(rsc_dir, retention_days)
+        try:
+            from app.db import get_db as _get_db  # local import to avoid circular
+            protected_rows = []
+            with _get_db(settings.db_path) as conn:
+                protected_rows = conn.execute(
+                    "SELECT backup_link, rsc_link FROM backups WHERE router_id = ? AND important = 1",
+                    (router["id"],),
+                ).fetchall()
+            protected_names = set()
+            for row in protected_rows:
+                for key in ("backup_link", "rsc_link"):
+                    val = row[key] if isinstance(row, dict) else row[key]
+                    if val:
+                        try:
+                            protected_names.add(Path(val).name)
+                        except Exception:
+                            continue
+        except Exception:
+            protected_names = set()
+
+        delete_old_local_files(backups_dir, retention_days, protected_names)
+        delete_old_local_files(rsc_dir, retention_days, protected_names)
 
         base_url = f"/download/{router_slug}"
         backup_link = f"{base_url}/backups/{backup_name}"
@@ -272,8 +289,8 @@ def run_router_check(
 
 
 def run_scheduled_checks() -> None:
-    now = datetime.utcnow()
-    global_force_days = get_global_force_days()
+    now_utc = datetime.utcnow()
+    now_ph = datetime.now(ZoneInfo("Asia/Manila"))
     with get_db(settings.db_path) as conn:
         routers = conn.execute(
             """
@@ -288,11 +305,11 @@ def run_scheduled_checks() -> None:
         )
     for router in routers:
         router_dict = dict(router)
-        baseline_due = is_baseline_due(router_dict, now)
-        interval_due = is_interval_due(router_dict, now)
+        baseline_due = is_baseline_due(router_dict, now_ph)
+        interval_due = is_interval_due(router_dict, now_utc)
         if baseline_due or interval_due:
             try:
-                run_router_check(router_dict, baseline_due, force=False, global_force_days=global_force_days)
+                run_router_check(router_dict, baseline_due, force=False)
             except Exception as exc:
                 with get_db(settings.db_path) as conn:
                     conn.execute(

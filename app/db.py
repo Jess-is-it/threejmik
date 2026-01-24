@@ -35,6 +35,7 @@ def init_db(db_path: Path) -> None:
                 last_backup_log_at TEXT,
                 last_success_at TEXT,
                 last_backup_at TEXT,
+                last_backups_viewed_at TEXT,
                 last_error TEXT,
                 last_hash TEXT,
                 last_config_change_at TEXT,
@@ -56,6 +57,7 @@ def init_db(db_path: Path) -> None:
                 trigger TEXT DEFAULT 'auto',
                 was_forced INTEGER DEFAULT 0,
                 was_changed INTEGER DEFAULT 0,
+                important INTEGER DEFAULT 0,
                 FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS router_logs (
@@ -111,6 +113,7 @@ def init_db(db_path: Path) -> None:
                     last_backup_log_at TEXT,
                     last_success_at TEXT,
                     last_backup_at TEXT,
+                    last_backups_viewed_at TEXT,
                     last_error TEXT,
                     last_hash TEXT,
                     last_config_change_at TEXT,
@@ -143,7 +146,8 @@ def init_db(db_path: Path) -> None:
                     {retention_expr}, {telegram_expr},
                     last_log_check_at,
                     COALESCE(last_log_check_at, last_success_at),
-                    last_success_at, last_backup_at, last_error,
+                    last_success_at, last_backup_at, last_success_at,
+                    last_error,
                     last_hash, last_config_change_at, last_backup_links,
                     last_check_at, last_baseline_at, created_at, updated_at
                 FROM routers
@@ -162,10 +166,23 @@ def init_db(db_path: Path) -> None:
                 WHERE last_backup_log_at IS NULL
                 """
             )
+        if "last_backups_viewed_at" not in routers_columns:
+            conn.execute("ALTER TABLE routers ADD COLUMN last_backups_viewed_at TEXT")
+            conn.execute(
+                """
+                UPDATE routers
+                SET last_backups_viewed_at = COALESCE(last_backup_at, last_success_at, last_check_at, created_at)
+                WHERE last_backups_viewed_at IS NULL
+                """
+            )
         settings_columns = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
         backups_columns = [row[1] for row in conn.execute("PRAGMA table_info(backups)").fetchall()]
         if "trigger" not in backups_columns:
             conn.execute("ALTER TABLE backups ADD COLUMN trigger TEXT DEFAULT 'auto'")
+        conn.execute("UPDATE backups SET trigger = 'auto' WHERE trigger IS NULL OR trigger = ''")
+        if "important" not in backups_columns:
+            conn.execute("ALTER TABLE backups ADD COLUMN important INTEGER DEFAULT 0")
+            conn.execute("UPDATE backups SET important = 0 WHERE important IS NULL")
         if "telegram_token" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_token TEXT")
         if "telegram_recipients" not in settings_columns:

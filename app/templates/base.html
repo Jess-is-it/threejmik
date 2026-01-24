@@ -6,62 +6,19 @@
   <title>{{ app_name }} - {{ title if title else "" }}</title>
   <link rel="stylesheet" href="/static/tabler/tabler.min.css">
   <link rel="stylesheet" href="/static/tabler/tabler-icons.min.css">
-  <link rel="stylesheet" href="/static/styles.css?v=5">
+  <link rel="stylesheet" href="/static/styles.css?v=7">
 </head>
 <body class="theme-light">
   <div class="page">
-    <aside class="navbar navbar-vertical navbar-expand-lg navbar-dark d-print-none">
-      <div class="container-fluid">
-        <div class="navbar-brand navbar-brand-autodark">
-          <a href="/">
-            <div class="navbar-brand-title">RouterVault</div>
-          </a>
-        </div>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu" aria-controls="sidebar-menu" aria-expanded="false" aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="sidebar-menu">
-          <ul class="navbar-nav pt-lg-3">
-            <li class="nav-item">
-              <a class="nav-link" href="/">
-                <span class="nav-link-icon d-md-none d-lg-inline-block">
-                  <i class="ti ti-layout-dashboard"></i>
-                </span>
-                <span class="nav-link-title">Dashboard</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/routers">
-                <span class="nav-link-icon d-md-none d-lg-inline-block">
-                  <i class="ti ti-router"></i>
-                </span>
-                <span class="nav-link-title">Routers</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/backups">
-                <span class="nav-link-icon d-md-none d-lg-inline-block">
-                  <i class="ti ti-archive"></i>
-                </span>
-                <span class="nav-link-title">Backups</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/settings">
-                <span class="nav-link-icon d-md-none d-lg-inline-block">
-                  <i class="ti ti-settings"></i>
-                </span>
-                <span class="nav-link-title">Settings</span>
-              </a>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </aside>
-    <div class="page-wrapper">
-      <header class="navbar navbar-expand-md navbar-light d-print-none rv-topbar">
-        <div class="container-fluid">
-          <div class="ms-auto d-flex align-items-center rv-metrics-row">
+    <header class="navbar navbar-light sticky-top d-print-none rv-main-nav">
+      <div class="container-xl w-100 flex-column">
+        <div class="d-flex align-items-center justify-content-between w-100">
+          <div class="navbar-brand navbar-brand-autodark mb-0">
+            <a href="/" class="text-decoration-none text-reset">
+              <div class="navbar-brand-title">RouterVault</div>
+            </a>
+          </div>
+          <div class="d-flex align-items-center rv-metrics-row">
             <div class="rv-metric" data-bs-toggle="tooltip" title="CPU usage">
               <i class="ti ti-cpu rv-metric-icon"></i><span class="rv-metric-title">CPU</span><span class="rv-metric-value" id="rv-stat-cpu">-</span>
             </div>
@@ -76,7 +33,39 @@
             </div>
           </div>
         </div>
-      </header>
+        <div class="w-100 mt-2">
+          <div class="collapse navbar-collapse show" id="main-menu">
+            <ul class="navbar-nav flex-row gap-4 align-items-center">
+              <li class="nav-item">
+                <a class="nav-link px-0 rv-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+                  <i class="ti ti-layout-dashboard me-1"></i>
+                  <span>Dashboard</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/routers') %}active{% endif %}" href="/routers">
+                  <i class="ti ti-router me-1"></i>
+                  <span>Routers</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/backups') %}active{% endif %}" href="/backups">
+                  <i class="ti ti-archive me-1"></i>
+                  <span>Backups</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/settings') %}active{% endif %}" href="/settings">
+                  <i class="ti ti-settings me-1"></i>
+                  <span>Settings</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="page-wrapper">
       <div class="rv-page-container {{ container_class if container_class else 'container-xl' }}">
         {% if notice %}
         <div class="alert alert-success" role="alert" data-autoclear="true">{{ notice }}</div>
