@@ -189,8 +189,27 @@ class MikroTikClient:
             return f"# mock export {seed}\n/interface print\n"
         api = self._connect()
         try:
-            export_lines = api("/export")
-            return "\n".join([line.get("text", "") for line in export_lines])
+            try:
+                if export_show_sensitive():
+                    export_lines = api("/export", **{"show-sensitive": "yes"})
+                else:
+                    export_lines = api("/export")
+            except Exception:
+                export_lines = api("/export")
+
+            rendered: list[str] = []
+            for line in export_lines:
+                if isinstance(line, str):
+                    rendered.append(line)
+                    continue
+                if not isinstance(line, dict):
+                    continue
+                for key in ("text", "ret", "message", "data"):
+                    value = line.get(key)
+                    if isinstance(value, str) and value:
+                        rendered.append(value)
+                        break
+            return "\n".join(rendered)
         except Exception as exc:
             raise RuntimeError(f"Failed to export config: {exc}")
 

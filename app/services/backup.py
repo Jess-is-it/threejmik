@@ -92,12 +92,13 @@ def should_force_backup(router: Dict, now: datetime) -> bool:
 
 
 def detect_change(logs: list[dict], new_hash: str, old_hash: str | None) -> Tuple[bool, str]:
-    hash_changed = new_hash != (old_hash or "")
-    logs_indicate_change = bool(logs)
-    if hash_changed:
+    # RouterOS log lines can be noisy (e.g. scripts/netwatch entries that look like
+    # config changes). To avoid backup storms, only treat an actual config export
+    # hash change as "changed".
+    if not old_hash:
+        return True, "Initial snapshot"
+    if new_hash != old_hash:
         return True, "Hash changed"
-    if logs_indicate_change:
-        return True, "Config-change logs detected"
     return False, "No changes detected"
 
 
@@ -125,6 +126,19 @@ def run_router_check(
         pass
     export_text = client.export_config()
     normalized = normalize_export(export_text)
+    fallback_rsc_bytes: bytes | None = None
+    if not normalized:
+        # Some RouterOS/librouteros combinations return non-textual rows for `/export`
+        # which can lead to an empty normalized export. Fall back to generating a
+        # temporary `.rsc` export file and hashing its contents instead.
+        try:
+            tmp_router_slug = safe_name(router["name"])
+            tmp_stamp = now.strftime("%Y%m%dT%H%M%SZ")
+            tmp_name = f"rv_hash_{tmp_router_slug}_{tmp_stamp}_{router['id']}"
+            fallback_rsc_bytes = client.create_rsc_file(tmp_name)
+            normalized = normalize_export(fallback_rsc_bytes.decode("utf-8", errors="replace"))
+        except Exception:
+            normalized = ""
     new_hash = sha256_text(normalized)
 
     changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
@@ -170,7 +184,7 @@ def run_router_check(
         rsc_name = f"{base_name}.rsc"
 
         backup_bytes = client.create_backup(base_name)
-        rsc_bytes = client.create_rsc_file(base_name)
+        rsc_bytes = fallback_rsc_bytes if fallback_rsc_bytes is not None else client.create_rsc_file(base_name)
         router_dir, backups_dir, rsc_dir = ensure_storage_dirs(router["name"])
         backup_path = backups_dir / backup_name
         rsc_path = rsc_dir / rsc_name
