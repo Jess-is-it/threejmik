@@ -34,4 +34,7 @@ def send_message(chat_ids: list[str], message: str) -> None:
         for chat_id in chat_ids:
             if not chat_id:
                 continue
-            client.post(url, json={"chat_id": chat_id, "text": message})
+            res = client.post(url, json={"chat_id": chat_id, "text": message})
+            if not res.is_success:
+                detail = (res.text or "").strip()
+                raise RuntimeError(f"Telegram send failed for chat_id={chat_id}: HTTP {res.status_code} {detail}")

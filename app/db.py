@@ -71,12 +71,31 @@ def init_db(db_path: Path) -> None:
                 FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE CASCADE,
                 FOREIGN KEY (backup_id) REFERENCES backups (id) ON DELETE SET NULL
             );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                router_id INTEGER,
+                level TEXT DEFAULT 'info',
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                meta TEXT,
+                sent_telegram INTEGER DEFAULT 0,
+                viewed_at TEXT,
+                FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE SET NULL
+            );
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 stale_backup_days INTEGER DEFAULT 3,
                 last_scheduler_run TEXT,
                 telegram_token TEXT,
-                telegram_recipients TEXT
+                telegram_recipients TEXT,
+                alerts_retention_days INTEGER DEFAULT 30,
+                telegram_notify_backup_created INTEGER DEFAULT 0,
+                telegram_notify_backup_failed INTEGER DEFAULT 1,
+                telegram_notify_router_recovered INTEGER DEFAULT 1,
+                telegram_notify_manual_backup INTEGER DEFAULT 0,
+                telegram_notify_restore INTEGER DEFAULT 1
             );
             INSERT OR IGNORE INTO settings (id, stale_backup_days) VALUES (1, 3);
             """
@@ -177,16 +196,48 @@ def init_db(db_path: Path) -> None:
             )
         settings_columns = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
         backups_columns = [row[1] for row in conn.execute("PRAGMA table_info(backups)").fetchall()]
+        alerts_columns = [row[1] for row in conn.execute("PRAGMA table_info(alerts)").fetchall()]
         if "trigger" not in backups_columns:
             conn.execute("ALTER TABLE backups ADD COLUMN trigger TEXT DEFAULT 'auto'")
         conn.execute("UPDATE backups SET trigger = 'auto' WHERE trigger IS NULL OR trigger = ''")
         if "important" not in backups_columns:
             conn.execute("ALTER TABLE backups ADD COLUMN important INTEGER DEFAULT 0")
             conn.execute("UPDATE backups SET important = 0 WHERE important IS NULL")
+        if not alerts_columns:
+            # Older DBs created before alerts existed.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    router_id INTEGER,
+                    level TEXT DEFAULT 'info',
+                    kind TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    meta TEXT,
+                    sent_telegram INTEGER DEFAULT 0,
+                    viewed_at TEXT,
+                    FOREIGN KEY (router_id) REFERENCES routers (id) ON DELETE SET NULL
+                )
+                """
+            )
         if "telegram_token" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_token TEXT")
         if "telegram_recipients" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN telegram_recipients TEXT")
+        if "alerts_retention_days" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN alerts_retention_days INTEGER DEFAULT 30")
+        if "telegram_notify_backup_created" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_notify_backup_created INTEGER DEFAULT 0")
+        if "telegram_notify_backup_failed" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_notify_backup_failed INTEGER DEFAULT 1")
+        if "telegram_notify_router_recovered" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_notify_router_recovered INTEGER DEFAULT 1")
+        if "telegram_notify_manual_backup" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_notify_manual_backup INTEGER DEFAULT 0")
+        if "telegram_notify_restore" not in settings_columns:
+            conn.execute("ALTER TABLE settings ADD COLUMN telegram_notify_restore INTEGER DEFAULT 1")
         if "basic_user" not in settings_columns:
             conn.execute("ALTER TABLE settings ADD COLUMN basic_user TEXT")
         if "basic_password" not in settings_columns:
@@ -202,7 +253,13 @@ def init_db(db_path: Path) -> None:
             SET basic_user = COALESCE(NULLIF(basic_user, ''), 'admin'),
                 basic_password = COALESCE(NULLIF(basic_password, ''), 'changeme'),
                 mock_mode = COALESCE(mock_mode, 0),
-                export_show_sensitive = COALESCE(export_show_sensitive, 0)
+                export_show_sensitive = COALESCE(export_show_sensitive, 0),
+                alerts_retention_days = COALESCE(alerts_retention_days, 30),
+                telegram_notify_backup_created = COALESCE(telegram_notify_backup_created, 0),
+                telegram_notify_backup_failed = COALESCE(telegram_notify_backup_failed, 1),
+                telegram_notify_router_recovered = COALESCE(telegram_notify_router_recovered, 1),
+                telegram_notify_manual_backup = COALESCE(telegram_notify_manual_backup, 0),
+                telegram_notify_restore = COALESCE(telegram_notify_restore, 1)
             WHERE id = 1
             """
         )

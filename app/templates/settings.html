@@ -37,7 +37,7 @@
       </label>
     </div>
   </div>
-  <div class="card">
+  <div class="card mb-4">
     <div class="card-header"><h3 class="card-title">Telegram</h3></div>
     <div class="card-body">
       <div class="mb-3">
@@ -48,6 +48,49 @@
         <label class="form-label">Chat ID {{ tip("Comma-separated Telegram chat IDs to receive notifications.") }}</label>
         <input class="form-control" name="telegram_recipients" value="{{ settings.telegram_recipients or '' }}" placeholder="-1001234567890" data-bs-toggle="tooltip" title="Comma-separated chat IDs (e.g. -100123...).">
       </div>
+      <div class="hr-text">Notifications</div>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-check">
+            <input class="form-check-input" type="checkbox" name="telegram_notify_backup_failed" value="1" {% if settings.telegram_notify_backup_failed %}checked{% endif %}>
+            <span class="form-check-label">Backup/check failures {{ tip("Send an alert when RouterVault cannot check a router or create a backup (API down, timeouts, errors).") }}</span>
+          </label>
+        </div>
+        <div class="col-md-6">
+          <label class="form-check">
+            <input class="form-check-input" type="checkbox" name="telegram_notify_router_recovered" value="1" {% if settings.telegram_notify_router_recovered %}checked{% endif %}>
+            <span class="form-check-label">Router recovered {{ tip("Send an alert when a router that previously had errors starts passing checks again.") }}</span>
+          </label>
+        </div>
+        <div class="col-md-6">
+          <label class="form-check">
+            <input class="form-check-input" type="checkbox" name="telegram_notify_backup_created" value="1" {% if settings.telegram_notify_backup_created %}checked{% endif %}>
+            <span class="form-check-label">Automatic backup created {{ tip("Send an alert when RouterVault creates an automatic backup.") }}</span>
+          </label>
+        </div>
+        <div class="col-md-6">
+          <label class="form-check">
+            <input class="form-check-input" type="checkbox" name="telegram_notify_manual_backup" value="1" {% if settings.telegram_notify_manual_backup %}checked{% endif %}>
+            <span class="form-check-label">Manual backup created {{ tip("Send an alert when you trigger a manual backup.") }}</span>
+          </label>
+        </div>
+        <div class="col-md-6">
+          <label class="form-check">
+            <input class="form-check-input" type="checkbox" name="telegram_notify_restore" value="1" {% if settings.telegram_notify_restore %}checked{% endif %}>
+            <span class="form-check-label">Restore actions {{ tip("Send an alert when a restore is started (or fails).") }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card mb-4">
+    <div class="card-header"><h3 class="card-title">Alerts</h3></div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Auto-delete alerts after (days) {{ tip("Alerts older than this are deleted automatically by the scheduler. Set to at least 1 day.") }}</label>
+        <input class="form-control" type="number" min="1" name="alerts_retention_days" value="{{ settings.alerts_retention_days or 30 }}" data-bs-toggle="tooltip" title="Delete alerts older than this many days.">
+      </div>
+      <div class="text-secondary">Alerts are shown in the Dashboard drawer and marked read when viewed.</div>
     </div>
     <div class="card-footer text-end">
       <button class="btn btn-primary" type="submit">Save Settings</button>

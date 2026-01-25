@@ -6,7 +6,6 @@ from typing import Dict, Tuple
 from app.db import get_db, utcnow
 from app.services.config import settings
 from app.services.mikrotik import MikroTikClient, normalize_export, sha256_text
-from app.services.telegram import get_default_recipients, send_message
 from zoneinfo import ZoneInfo
 
 
@@ -117,6 +116,7 @@ def run_router_check(
         ftp_port=router.get("ftp_port") or 21,
     )
     now = datetime.utcnow()
+    prior_error = (router.get("last_error") or "").strip()
     detection_logs = client.fetch_logs(router.get("last_log_check_at"))
     log_cursor = client.get_router_clock_iso()
     try:
@@ -291,15 +291,38 @@ def run_router_check(
                 ),
             )
 
+    # Generate alerts after DB updates; ignore notification errors.
+    try:
+        from app.services.alerts import create_alert
+
+        if prior_error:
+            create_alert(
+                router_id=int(router["id"]),
+                level="info",
+                kind="router_recovered",
+                title=f"Router recovered: {router['name']}",
+                message=f"RouterOS API checks are passing again for {router['name']}.",
+                dedupe_seconds=3600,
+            )
+    except Exception:
+        pass
+
     if needs_backup:
-        recipients = get_default_recipients()
-        message = (
-            f"RouterVault backup for {router['name']}\n"
-            f"Changed: {changed} Forced: {forced}\n"
-            f"Backup: {backup_link}\nRSC: {rsc_link}"
-        )
-        if recipients:
-            send_message(recipients, message)
+        try:
+            from app.services.alerts import create_alert
+
+            kind = "manual_backup" if trigger == "manual" else "backup_created"
+            create_alert(
+                router_id=int(router["id"]),
+                level="info",
+                kind=kind,
+                title=f"Backup created: {router['name']}",
+                message=f"Trigger: {trigger}. Changed: {changed}. Forced: {forced}.",
+                meta={"backup_link": backup_link, "rsc_link": rsc_link},
+                dedupe_seconds=30,
+            )
+        except Exception:
+            pass
 
 
 def run_scheduled_checks() -> None:
@@ -334,3 +357,22 @@ def run_scheduled_checks() -> None:
                         """,
                         (str(exc), utcnow(), utcnow(), router_dict["id"]),
                     )
+                try:
+                    from app.services.alerts import create_alert
+
+                    create_alert(
+                        router_id=int(router_dict["id"]),
+                        level="error",
+                        kind="backup_failed",
+                        title=f"Router check failed: {router_dict['name']}",
+                        message=str(exc),
+                        dedupe_seconds=900,
+                    )
+                except Exception:
+                    pass
+    try:
+        from app.services.alerts import cleanup_old_alerts
+
+        cleanup_old_alerts()
+    except Exception:
+        pass

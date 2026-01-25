@@ -48,6 +48,43 @@
   font-weight: 700;
   color: var(--tblr-body-color);
 }
+
+.rv-kpi-card {
+  cursor: default;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.rv-kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.06);
+}
+
+.rv-kpi-card .subheader {
+  user-select: none;
+}
+
+.rv-kpi-clickable {
+  text-decoration: none;
+}
+
+.rv-alert-new {
+  background: rgba(32, 107, 196, 0.06);
+}
+
+.rv-alert-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rv-ellipsis {
+  display: inline-block;
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 pre {
   background: #f8fafc;
   padding: 1rem;

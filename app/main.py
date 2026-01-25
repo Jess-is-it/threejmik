@@ -176,6 +176,25 @@ def dashboard(request: Request):
             GROUP BY router_id
             """
         ).fetchall()
+        alert_counts = conn.execute(
+            """
+            SELECT
+                COUNT(1) AS total,
+                COALESCE(SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS viewed
+            FROM alerts
+            """
+        ).fetchone()
+        alerts_rows = conn.execute(
+            """
+            SELECT alerts.*, routers.name AS router_name
+            FROM alerts
+            LEFT JOIN routers ON routers.id = alerts.router_id
+            ORDER BY alerts.created_at DESC
+            LIMIT 100
+            """
+        ).fetchall()
+        alerts_total = int(alert_counts["total"] or 0) if alert_counts else 0
+        alerts_viewed = int(alert_counts["viewed"] or 0) if alert_counts else 0
     router_kpis = {
         int(row["router_id"]): {
             "total_backups": int(row["total_backups"] or 0),
@@ -190,6 +209,12 @@ def dashboard(request: Request):
         days = int(router_row["force_backup_every_days"] or 7)
         return is_stale(router_row["last_success_at"], days)
 
+    def is_router_connected(router_row):
+        return not (router_row["last_error"] or "").strip()
+
+    total_routers = len(routers)
+    connected_routers = sum(1 for router in routers if is_router_connected(router))
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -201,11 +226,97 @@ def dashboard(request: Request):
             "is_stale_router": is_router_stale,
             "parse_links": parse_links,
             "router_kpis": router_kpis,
+            "total_routers": total_routers,
+            "connected_routers": connected_routers,
+            "is_connected_router": is_router_connected,
+            "alerts": alerts_rows,
+            "alerts_total": alerts_total,
+            "alerts_viewed": alerts_viewed,
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
         },
     )
 
+
+@app.get("/api/dashboard/poll", dependencies=[Depends(require_basic_auth)])
+def dashboard_poll():
+    with get_db(settings.db_path) as conn:
+        routers = conn.execute(
+            """
+            SELECT id, last_error, last_backup_at, last_success_at, force_backup_every_days
+            FROM routers
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+        settings_row = conn.execute("SELECT stale_backup_days FROM settings WHERE id = 1").fetchone()
+        stale_days_default = int(settings_row["stale_backup_days"] or 3) if settings_row else 3
+        alert_counts = conn.execute(
+            """
+            SELECT
+                COUNT(1) AS total,
+                COALESCE(SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS viewed
+            FROM alerts
+            """
+        ).fetchone()
+        recent_alerts = conn.execute(
+            """
+            SELECT alerts.*, routers.name AS router_name
+            FROM alerts
+            LEFT JOIN routers ON routers.id = alerts.router_id
+            ORDER BY alerts.created_at DESC
+            LIMIT 100
+            """
+        ).fetchall()
+
+    total_routers = len(routers)
+    routers_payload = []
+    connected = 0
+    for row in routers:
+        last_error = (row["last_error"] or "").strip()
+        is_connected = not last_error
+        if is_connected:
+            connected += 1
+        days = int(row["force_backup_every_days"] or stale_days_default or 3)
+        routers_payload.append(
+            {
+                "id": int(row["id"]),
+                "connected": bool(is_connected),
+                "last_error": last_error,
+                "last_backup_at": row["last_backup_at"] or "",
+                "last_backup_at_ph": format_ts_ph(row["last_backup_at"]),
+                "last_success_at": row["last_success_at"] or "",
+                "last_success_at_ph": format_ts_ph(row["last_success_at"]),
+                "is_stale": bool(is_stale(row["last_success_at"], days)),
+            }
+        )
+
+    alerts_total = int(alert_counts["total"] or 0) if alert_counts else 0
+    alerts_viewed = int(alert_counts["viewed"] or 0) if alert_counts else 0
+    recent_payload = []
+    for alert in recent_alerts:
+        recent_payload.append(
+            {
+                "id": int(alert["id"]),
+                "created_at": alert["created_at"],
+                "created_at_ph": format_ts_ph(alert["created_at"]),
+                "router_name": alert["router_name"] or "",
+                "level": (alert["level"] or "info").lower(),
+                "title": alert["title"] or "",
+                "message": alert["message"] or "",
+                "viewed_at": alert["viewed_at"] or "",
+                "is_new": not bool(alert["viewed_at"]),
+            }
+        )
+
+    return {
+        "total_routers": total_routers,
+        "connected_routers": connected,
+        "routers": routers_payload,
+        "alerts_total": alerts_total,
+        "alerts_viewed": alerts_viewed,
+        "alerts_unread": max(0, alerts_total - alerts_viewed),
+        "recent_alerts": recent_payload,
+    }
 
 @app.get("/routers", dependencies=[Depends(require_basic_auth)], response_class=HTMLResponse)
 def list_routers(request: Request):
@@ -412,8 +523,36 @@ def restore_backup(backup_id: int):
             ftp_port=router["ftp_port"] or 21,
         )
         client.restore_backup(backup_path.name, backup_path.read_bytes())
+        try:
+            from app.services.alerts import create_alert
+
+            create_alert(
+                router_id=int(router["id"]),
+                level="warning",
+                kind="restore",
+                title=f"Restore started: {router['name']}",
+                message=f"Restore initiated for {backup_path.name}.",
+                meta={"backup_id": int(backup_id)},
+                dedupe_seconds=30,
+            )
+        except Exception:
+            pass
         return RedirectResponse("/backups?notice=restore_started", status_code=HTTP_303_SEE_OTHER)
     except Exception as exc:
+        try:
+            from app.services.alerts import create_alert
+
+            create_alert(
+                router_id=int(router["id"]),
+                level="error",
+                kind="restore",
+                title=f"Restore failed: {router['name']}",
+                message=str(exc),
+                meta={"backup_id": int(backup_id)},
+                dedupe_seconds=60,
+            )
+        except Exception:
+            pass
         return RedirectResponse(f"/backups?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER)
 
 
@@ -802,6 +941,7 @@ def test_router(router_id: int):
     if not router:
         raise HTTPException(status_code=404, detail="Router not found")
     try:
+        prior_error = (router["last_error"] or "").strip()
         client = MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
@@ -811,8 +951,41 @@ def test_router(router_id: int):
             ftp_port=router["ftp_port"] or 21,
         )
         ok, message = client.test_connection()
+        last_error = None
         if not ok:
-            ok, message = check_port(router["ip"], router["api_port"])
+            tcp_ok, tcp_message = check_port(router["ip"], router["api_port"])
+            tcp_summary = "TCP ok" if tcp_ok else "TCP failed"
+            message = f"{message} ({tcp_summary}: {tcp_message})" if message else f"{tcp_summary}: {tcp_message}"
+            last_error = message
+        with get_db(settings.db_path) as conn:
+            conn.execute(
+                "UPDATE routers SET last_error = ?, updated_at = ? WHERE id = ?",
+                (last_error, utcnow(), router_id),
+            )
+        try:
+            from app.services.alerts import create_alert
+
+            if ok and prior_error:
+                create_alert(
+                    router_id=int(router_id),
+                    level="info",
+                    kind="router_recovered",
+                    title=f"Router recovered: {router['name']}",
+                    message=f"RouterOS API checks are passing again for {router['name']}.",
+                    dedupe_seconds=3600,
+                )
+            if not ok:
+                create_alert(
+                    router_id=int(router_id),
+                    level="error",
+                    kind="backup_failed",
+                    title=f"Router API check failed: {router['name']}",
+                    message=message or "RouterOS API check failed",
+                    meta={"ip": router["ip"], "api_port": int(router["api_port"] or 8728)},
+                    dedupe_seconds=900,
+                )
+        except Exception:
+            pass
         return RedirectResponse(
             f"/routers/{router_id}?notice={'router_ok' if ok else 'router_fail'}&error={'' if ok else quote_message(message)}",
             status_code=HTTP_303_SEE_OTHER,
@@ -831,6 +1004,7 @@ def test_router_ajax(router_id: int):
     if not router:
         return {"ok": False, "message": "Router not found"}
     try:
+        prior_error = (router["last_error"] or "").strip()
         client = MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
@@ -840,8 +1014,41 @@ def test_router_ajax(router_id: int):
             ftp_port=router["ftp_port"] or 21,
         )
         ok, message = client.test_connection()
+        last_error = None
         if not ok:
-            ok, message = check_port(router["ip"], router["api_port"])
+            tcp_ok, tcp_message = check_port(router["ip"], router["api_port"])
+            tcp_summary = "TCP ok" if tcp_ok else "TCP failed"
+            message = f"{message} ({tcp_summary}: {tcp_message})" if message else f"{tcp_summary}: {tcp_message}"
+            last_error = message
+        with get_db(settings.db_path) as conn:
+            conn.execute(
+                "UPDATE routers SET last_error = ?, updated_at = ? WHERE id = ?",
+                (last_error, utcnow(), router_id),
+            )
+        try:
+            from app.services.alerts import create_alert
+
+            if ok and prior_error:
+                create_alert(
+                    router_id=int(router_id),
+                    level="info",
+                    kind="router_recovered",
+                    title=f"Router recovered: {router['name']}",
+                    message=f"RouterOS API checks are passing again for {router['name']}.",
+                    dedupe_seconds=3600,
+                )
+            if not ok:
+                create_alert(
+                    router_id=int(router_id),
+                    level="error",
+                    kind="backup_failed",
+                    title=f"Router API check failed: {router['name']}",
+                    message=message or "RouterOS API check failed",
+                    meta={"ip": router["ip"], "api_port": int(router["api_port"] or 8728)},
+                    dedupe_seconds=900,
+                )
+        except Exception:
+            pass
         return {"ok": bool(ok), "message": message or ""}
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
@@ -881,6 +1088,19 @@ def trigger_backup(request: Request, router_id: int):
         run_router_check(dict(router), baseline_due=False, force=True, trigger="manual")
         return RedirectResponse(with_query_params(next_url, {"notice": "backup_forced"}), status_code=HTTP_303_SEE_OTHER)
     except Exception as exc:
+        try:
+            from app.services.alerts import create_alert
+
+            create_alert(
+                router_id=int(router_id),
+                level="error",
+                kind="backup_failed",
+                title=f"Manual backup failed: {router['name']}",
+                message=str(exc),
+                dedupe_seconds=60,
+            )
+        except Exception:
+            pass
         return RedirectResponse(
             with_query_params(next_url, {"error": str(exc)}), status_code=HTTP_303_SEE_OTHER
         )
@@ -910,11 +1130,21 @@ def update_settings(
     basic_password: str = Form(""),
     mock_mode: Optional[str] = Form(None),
     export_show_sensitive: Optional[str] = Form(None),
+    alerts_retention_days: str = Form("30"),
+    telegram_notify_backup_created: Optional[str] = Form(None),
+    telegram_notify_backup_failed: Optional[str] = Form(None),
+    telegram_notify_router_recovered: Optional[str] = Form(None),
+    telegram_notify_manual_backup: Optional[str] = Form(None),
+    telegram_notify_restore: Optional[str] = Form(None),
 ):
     with get_db(settings.db_path) as conn:
         current = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
         new_basic_user = (basic_user or "").strip() or (current["basic_user"] if current and "basic_user" in dict(current) else "admin")
         new_basic_password = basic_password if basic_password else (current["basic_password"] if current and "basic_password" in dict(current) else "changeme")
+        try:
+            retention_days = max(1, int((alerts_retention_days or "").strip() or 30))
+        except Exception:
+            retention_days = 30
         conn.execute(
             """
             UPDATE settings
@@ -923,7 +1153,13 @@ def update_settings(
                 basic_user = ?,
                 basic_password = ?,
                 mock_mode = ?,
-                export_show_sensitive = ?
+                export_show_sensitive = ?,
+                alerts_retention_days = ?,
+                telegram_notify_backup_created = ?,
+                telegram_notify_backup_failed = ?,
+                telegram_notify_router_recovered = ?,
+                telegram_notify_manual_backup = ?,
+                telegram_notify_restore = ?
             WHERE id = 1
             """,
             (
@@ -933,6 +1169,12 @@ def update_settings(
                 new_basic_password,
                 1 if mock_mode else 0,
                 1 if export_show_sensitive else 0,
+                retention_days,
+                1 if telegram_notify_backup_created else 0,
+                1 if telegram_notify_backup_failed else 0,
+                1 if telegram_notify_router_recovered else 0,
+                1 if telegram_notify_manual_backup else 0,
+                1 if telegram_notify_restore else 0,
             ),
     )
     return RedirectResponse("/settings?notice=settings_saved", status_code=HTTP_303_SEE_OTHER)
@@ -946,6 +1188,7 @@ def format_backups(confirm_word: str = Form(""), include_routers: Optional[str] 
     with get_db(settings.db_path) as conn:
         conn.execute("DELETE FROM backups")
         conn.execute("DELETE FROM router_logs")
+        conn.execute("DELETE FROM alerts")
         if include_routers:
             conn.execute("DELETE FROM routers")
         else:
@@ -983,6 +1226,14 @@ def format_backups(confirm_word: str = Form(""), include_routers: Optional[str] 
         # ignore filesystem errors, DB already cleared
         pass
     return RedirectResponse("/settings?notice=backups_formatted", status_code=HTTP_303_SEE_OTHER)
+
+
+@app.post("/alerts/viewed", dependencies=[Depends(require_basic_auth)])
+def mark_alerts_viewed():
+    from app.services.alerts import mark_all_alerts_viewed
+
+    viewed, total = mark_all_alerts_viewed()
+    return {"ok": True, "viewed": viewed, "total": total}
 
 
 @app.get("/health")
