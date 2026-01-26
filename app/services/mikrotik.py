@@ -24,6 +24,7 @@ class MikroTikClient:
         self.password = password
         self.timeout = timeout
         self.ftp_port = ftp_port
+        self._api = None
 
     def _connect(self):
         if connect is None:
@@ -44,11 +45,54 @@ class MikroTikClient:
                 port=self.port,
             )
 
+    def _get_api(self):
+        api = self._api
+        if api is not None:
+            return api
+        api = self._connect()
+        self._api = api
+        return api
+
+    def close(self) -> None:
+        api = self._api
+        self._api = None
+        if api is None:
+            return
+        for attr in ("close", "disconnect"):
+            fn = getattr(api, attr, None)
+            if callable(fn):
+                try:
+                    fn()
+                    return
+                except Exception:
+                    pass
+        transport = getattr(api, "transport", None)
+        if transport is not None:
+            fn = getattr(transport, "close", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def test_connection(self) -> Tuple[bool, str]:
         if is_mock_mode():
             return True, ""
         try:
-            api = self._connect()
+            api = self._get_api()
             list(api("/system/resource/print"))
             return True, "Connected"
         except Exception as exc:
@@ -64,7 +108,7 @@ class MikroTikClient:
         if is_mock_mode():
             return datetime.utcnow()
         try:
-            api = self._connect()
+            api = self._get_api()
             row = list(api("/system/clock/print"))[0]
             date_raw = (row.get("date") or "").strip()
             time_raw = (row.get("time") or "").strip()
@@ -122,7 +166,7 @@ class MikroTikClient:
     def fetch_logs(self, since: str | None) -> List[Dict[str, str]]:
         if is_mock_mode():
             return []
-        api = self._connect()
+        api = self._get_api()
         logs = list(api("/log/print"))
         filtered: List[Dict[str, str]] = []
 
@@ -187,7 +231,7 @@ class MikroTikClient:
         if is_mock_mode():
             seed = datetime.utcnow().isoformat()
             return f"# mock export {seed}\n/interface print\n"
-        api = self._connect()
+        api = self._get_api()
         try:
             export_lines = api("/export")
             return "\n".join([line.get("text", "") for line in export_lines])
@@ -197,7 +241,7 @@ class MikroTikClient:
     def create_backup(self, name: str) -> bytes:
         if is_mock_mode():
             return f"backup::{name}".encode("utf-8")
-        api = self._connect()
+        api = self._get_api()
         list(api("/system/backup/save", name=name))
         filename = self._wait_for_file(f"{name}.backup")
         return self._download_file(filename)
@@ -205,7 +249,7 @@ class MikroTikClient:
     def create_rsc_file(self, name: str) -> bytes:
         if is_mock_mode():
             return self.export_config().encode("utf-8")
-        api = self._connect()
+        api = self._get_api()
         try:
             if export_show_sensitive():
                 list(api("/export", file=name, **{"show-sensitive": "yes"}))
@@ -218,7 +262,7 @@ class MikroTikClient:
 
     def _find_file_path(self, filename: str) -> str | None:
         try:
-            api = self._connect()
+            api = self._get_api()
             files = list(api("/file/print"))
             for entry in files:
                 name = entry.get("name") or ""
@@ -230,7 +274,7 @@ class MikroTikClient:
 
     def _remove_file_via_api(self, filename: str) -> None:
         try:
-            api = self._connect()
+            api = self._get_api()
             files = list(api("/file/print"))
             for entry in files:
                 name = entry.get("name") or ""
@@ -278,7 +322,7 @@ class MikroTikClient:
             ftp.connect(self.host, self.ftp_port, timeout=10)
             ftp.login(self.username, self.password)
             ftp.storbinary(f"STOR {backup_name}", io.BytesIO(content))
-        api = self._connect()
+        api = self._get_api()
         base_name = backup_name[:-7] if backup_name.endswith(".backup") else backup_name
         list(api("/system/backup/load", name=base_name))
 
