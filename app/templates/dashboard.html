@@ -124,7 +124,7 @@
           </div>
           <div class="flex-grow-1 min-w-0">
             <div class="d-flex align-items-center gap-2">
-              <div class="fw-semibold text-truncate">{{ alert.title }}</div>
+              <div class="rv-alert-title fw-semibold text-truncate {% if is_new %}rv-alert-title-new{% endif %}">{{ alert.title }}</div>
               {% if is_new %}
               <span class="badge bg-azure text-white rv-alert-badge-new">New</span>
               {% endif %}
@@ -253,7 +253,8 @@
         const titleRow = document.createElement("div");
         titleRow.className = "d-flex align-items-center gap-2";
         const title = document.createElement("div");
-        title.className = "fw-semibold text-truncate";
+        title.className = "rv-alert-title fw-semibold text-truncate";
+        if (alert.is_new) title.classList.add("rv-alert-title-new");
         title.textContent = alert.title || "";
         titleRow.appendChild(title);
         if (alert.is_new) {

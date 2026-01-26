@@ -473,7 +473,10 @@ def delete_backup(backup_id: int):
                 "UPDATE routers SET last_backup_log_at = NULL, updated_at = ? WHERE id = ?",
                 (utcnow(), router_id),
             )
-    return RedirectResponse("/backups?notice=backup_deleted", status_code=HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        f"/backups?router_id={router_id}&notice=backup_deleted#tab-router-{router_id}",
+        status_code=HTTP_303_SEE_OTHER,
+    )
 
 
 @app.post("/backups/{backup_id}/toggle-important", dependencies=[Depends(require_basic_auth)])
@@ -510,19 +513,20 @@ def restore_backup(backup_id: int):
         router = conn.execute("SELECT * FROM routers WHERE id = ?", (backup["router_id"],)).fetchone()
     if not router:
         raise HTTPException(status_code=404, detail="Router not found")
+    router_id = int(router["id"])
     backup_path = _link_to_path(backup["backup_link"] or "")
     if not backup_path.exists():
         raise HTTPException(status_code=404, detail="Backup file missing")
     try:
-        client = MikroTikClient(
+        with MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
             timeout=router["api_timeout_seconds"] or 5,
             username=router["username"],
             password=router["encrypted_password"],
             ftp_port=router["ftp_port"] or 21,
-        )
-        client.restore_backup(backup_path.name, backup_path.read_bytes())
+        ) as client:
+            client.restore_backup(backup_path.name, backup_path.read_bytes())
         try:
             from app.services.alerts import create_alert
 
@@ -537,7 +541,10 @@ def restore_backup(backup_id: int):
             )
         except Exception:
             pass
-        return RedirectResponse("/backups?notice=restore_started", status_code=HTTP_303_SEE_OTHER)
+        return RedirectResponse(
+            f"/backups?router_id={router_id}&notice=restore_started#tab-router-{router_id}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
     except Exception as exc:
         try:
             from app.services.alerts import create_alert
@@ -553,7 +560,10 @@ def restore_backup(backup_id: int):
             )
         except Exception:
             pass
-        return RedirectResponse(f"/backups?error={quote_message(exc)}", status_code=HTTP_303_SEE_OTHER)
+        return RedirectResponse(
+            f"/backups?router_id={router_id}&error={quote_message(exc)}#tab-router-{router_id}",
+            status_code=HTTP_303_SEE_OTHER,
+        )
 
 
 @app.post("/routers/presets", dependencies=[Depends(require_basic_auth)])
@@ -796,15 +806,15 @@ def test_router_draft(
     ftp_port: int = Form(21),
 ):
     try:
-        client = MikroTikClient(
+        with MikroTikClient(
             host=ip,
             port=api_port,
             timeout=api_timeout_seconds or 5,
             username=username,
             password=password,
             ftp_port=ftp_port or 21,
-        )
-        ok, message = client.test_connection()
+        ) as client:
+            ok, message = client.test_connection()
         if not ok:
             ok, message = check_port(ip, api_port)
         return RedirectResponse(
@@ -828,15 +838,15 @@ def test_router_draft_ajax(
     ftp_port: int = Form(21),
 ):
     try:
-        client = MikroTikClient(
+        with MikroTikClient(
             host=ip,
             port=api_port,
             timeout=api_timeout_seconds or 5,
             username=username,
             password=password,
             ftp_port=ftp_port or 21,
-        )
-        ok, message = client.test_connection()
+        ) as client:
+            ok, message = client.test_connection()
         if not ok:
             ok, message = check_port(ip, api_port)
         return {"ok": bool(ok), "message": message or ""}
@@ -942,15 +952,15 @@ def test_router(router_id: int):
         raise HTTPException(status_code=404, detail="Router not found")
     try:
         prior_error = (router["last_error"] or "").strip()
-        client = MikroTikClient(
+        with MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
             timeout=router["api_timeout_seconds"] or 5,
             username=router["username"],
             password=router["encrypted_password"],
             ftp_port=router["ftp_port"] or 21,
-        )
-        ok, message = client.test_connection()
+        ) as client:
+            ok, message = client.test_connection()
         last_error = None
         if not ok:
             tcp_ok, tcp_message = check_port(router["ip"], router["api_port"])
@@ -1005,15 +1015,15 @@ def test_router_ajax(router_id: int):
         return {"ok": False, "message": "Router not found"}
     try:
         prior_error = (router["last_error"] or "").strip()
-        client = MikroTikClient(
+        with MikroTikClient(
             host=router["ip"],
             port=router["api_port"],
             timeout=router["api_timeout_seconds"] or 5,
             username=router["username"],
             password=router["encrypted_password"],
             ftp_port=router["ftp_port"] or 21,
-        )
-        ok, message = client.test_connection()
+        ) as client:
+            ok, message = client.test_connection()
         last_error = None
         if not ok:
             tcp_ok, tcp_message = check_port(router["ip"], router["api_port"])

@@ -107,50 +107,71 @@ def run_router_check(
     force: bool = False,
     trigger: str = "auto",
 ) -> None:
+    base_timeout = int(router.get("api_timeout_seconds") or 5)
     client = MikroTikClient(
         host=router["ip"],
         port=router["api_port"],
-        timeout=router.get("api_timeout_seconds") or 5,
+        timeout=base_timeout,
         username=router["username"],
         password=router["encrypted_password"],
         ftp_port=router.get("ftp_port") or 21,
     )
-    now = datetime.utcnow()
-    prior_error = (router.get("last_error") or "").strip()
-    detection_logs = client.fetch_logs(router.get("last_log_check_at"))
-    log_cursor = client.get_router_clock_iso()
     try:
-        cursor_dt = datetime.fromisoformat(log_cursor) - timedelta(seconds=1)
-        log_cursor = cursor_dt.replace(microsecond=0).isoformat(sep=" ")
-    except ValueError:
-        pass
-    export_text = client.export_config()
-    normalized = normalize_export(export_text)
-    fallback_rsc_bytes: bytes | None = None
-    if not normalized:
-        # Some RouterOS/librouteros combinations return non-textual rows for `/export`
-        # which can lead to an empty normalized export. Fall back to generating a
-        # temporary `.rsc` export file and hashing its contents instead.
+        now = datetime.utcnow()
+        prior_error = (router.get("last_error") or "").strip()
+        detection_logs = client.fetch_logs(router.get("last_log_check_at"))
+        log_cursor = client.get_router_clock_iso()
         try:
-            tmp_router_slug = safe_name(router["name"])
-            tmp_stamp = now.strftime("%Y%m%dT%H%M%SZ")
-            tmp_name = f"rv_hash_{tmp_router_slug}_{tmp_stamp}_{router['id']}"
-            fallback_rsc_bytes = client.create_rsc_file(tmp_name)
-            normalized = normalize_export(fallback_rsc_bytes.decode("utf-8", errors="replace"))
+            cursor_dt = datetime.fromisoformat(log_cursor) - timedelta(seconds=1)
+            log_cursor = cursor_dt.replace(microsecond=0).isoformat(sep=" ")
+        except ValueError:
+            pass
+        normalized = ""
+        try:
+            export_text = client.export_config()
+            normalized = normalize_export(export_text)
         except Exception:
             normalized = ""
-    new_hash = sha256_text(normalized)
+        fallback_rsc_bytes: bytes | None = None
+        if not normalized:
+            # Some RouterOS/librouteros combinations return non-textual rows for `/export`
+            # which can lead to an empty normalized export. Fall back to generating a
+            # temporary `.rsc` export file and hashing its contents instead.
+            try:
+                tmp_router_slug = safe_name(router["name"])
+                tmp_stamp = now.strftime("%Y%m%dT%H%M%SZ")
+                tmp_name = f"rv_hash_{tmp_router_slug}_{tmp_stamp}_{router['id']}"
+                try:
+                    fallback_rsc_bytes = client.create_rsc_file(tmp_name)
+                except Exception:
+                    retry_timeout = max(base_timeout, 30)
+                    if retry_timeout != base_timeout:
+                        with MikroTikClient(
+                            host=router["ip"],
+                            port=router["api_port"],
+                            timeout=retry_timeout,
+                            username=router["username"],
+                            password=router["encrypted_password"],
+                            ftp_port=router.get("ftp_port") or 21,
+                        ) as retry_client:
+                            fallback_rsc_bytes = retry_client.create_rsc_file(tmp_name)
+                    else:
+                        raise
+                normalized = normalize_export(fallback_rsc_bytes.decode("utf-8", errors="replace"))
+            except Exception:
+                normalized = ""
+        new_hash = sha256_text(normalized)
 
-    changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
-    forced = bool(force) or (baseline_due and should_force_backup(router, now))
-    needs_backup = changed or forced
+        changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
+        forced = bool(force) or (baseline_due and should_force_backup(router, now))
+        needs_backup = changed or forced
 
-    backup_link = ""
-    rsc_link = ""
-    backup_logs: list[dict] = []
-    backup_log_cursor: str | None = router.get("last_backup_log_at") or router.get("last_backup_at") or router.get("last_success_at")
-    if needs_backup:
-        backup_logs = client.fetch_logs(backup_log_cursor)
+        backup_link = ""
+        rsc_link = ""
+        backup_logs: list[dict] = []
+        backup_log_cursor: str | None = router.get("last_backup_log_at") or router.get("last_backup_at") or router.get("last_success_at")
+        if needs_backup:
+            backup_logs = client.fetch_logs(backup_log_cursor)
 
         # If this time window contains too much log noise, keep the backup's
         # logs focused on the most recent "detection" window (e.g. last 2 hours).
@@ -219,8 +240,8 @@ def run_router_check(
         backup_link = f"{base_url}/backups/{backup_name}"
         rsc_link = f"{base_url}/rsc/{rsc_name}"
 
-    with get_db(settings.db_path) as conn:
-        conn.execute(
+        with get_db(settings.db_path) as conn:
+            conn.execute(
             """
             UPDATE routers
             SET last_log_check_at = ?,
@@ -251,9 +272,9 @@ def run_router_check(
                 router["id"],
             ),
         )
-        backup_id = None
-        if needs_backup:
-            cursor = conn.execute(
+            backup_id = None
+            if needs_backup:
+                cursor = conn.execute(
                 """
                 INSERT INTO backups
                 (router_id, created_at, rsc_hash, rsc_link, backup_link, change_summary, logs, trigger, was_forced, was_changed)
@@ -272,55 +293,60 @@ def run_router_check(
                     1 if changed else 0,
                 ),
             )
-            backup_id = cursor.lastrowid
-        logs_to_store = backup_logs if needs_backup else detection_logs
-        for entry in logs_to_store:
-            conn.execute(
+                backup_id = cursor.lastrowid
+            logs_to_store = backup_logs if needs_backup else detection_logs
+            for entry in logs_to_store:
+                conn.execute(
                 """
                 INSERT INTO router_logs
                 (router_id, logged_at, topics, message, backup_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    router["id"],
-                    entry.get("logged_at") or "",
-                    entry.get("topics") or "",
-                    entry.get("message") or "",
-                    backup_id,
-                    utcnow(),
-                ),
-            )
+                    (
+                        router["id"],
+                        entry.get("logged_at") or "",
+                        entry.get("topics") or "",
+                        entry.get("message") or "",
+                        backup_id,
+                        utcnow(),
+                    ),
+                )
 
-    # Generate alerts after DB updates; ignore notification errors.
-    try:
-        from app.services.alerts import create_alert
-
-        if prior_error:
-            create_alert(
-                router_id=int(router["id"]),
-                level="info",
-                kind="router_recovered",
-                title=f"Router recovered: {router['name']}",
-                message=f"RouterOS API checks are passing again for {router['name']}.",
-                dedupe_seconds=3600,
-            )
-    except Exception:
-        pass
-
-    if needs_backup:
+        # Generate alerts after DB updates; ignore notification errors.
         try:
             from app.services.alerts import create_alert
 
-            kind = "manual_backup" if trigger == "manual" else "backup_created"
-            create_alert(
-                router_id=int(router["id"]),
-                level="info",
-                kind=kind,
-                title=f"Backup created: {router['name']}",
-                message=f"Trigger: {trigger}. Changed: {changed}. Forced: {forced}.",
-                meta={"backup_link": backup_link, "rsc_link": rsc_link},
-                dedupe_seconds=30,
-            )
+            if prior_error:
+                create_alert(
+                    router_id=int(router["id"]),
+                    level="info",
+                    kind="router_recovered",
+                    title=f"Router recovered: {router['name']}",
+                    message=f"RouterOS API checks are passing again for {router['name']}.",
+                    dedupe_seconds=3600,
+                )
+        except Exception:
+            pass
+
+        if needs_backup:
+            try:
+                from app.services.alerts import create_alert
+
+                kind = "manual_backup" if trigger == "manual" else "backup_created"
+                create_alert(
+                    router_id=int(router["id"]),
+                    level="info",
+                    kind=kind,
+                    title=f"Backup created: {router['name']}",
+                    message=f"Trigger: {trigger}. Changed: {changed}. Forced: {forced}.",
+                    meta={"backup_link": backup_link, "rsc_link": rsc_link},
+                    dedupe_seconds=30,
+                )
+            except Exception:
+                pass
+    finally:
+        try:
+            client.close()
         except Exception:
             pass
 

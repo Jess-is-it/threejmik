@@ -68,7 +68,12 @@
 }
 
 .rv-alert-new {
-  background: rgba(32, 107, 196, 0.06);
+  background: rgba(32, 107, 196, 0.08);
+  border-left: 4px solid var(--tblr-primary);
+}
+
+.rv-alert-title-new {
+  font-weight: 700;
 }
 
 .rv-alert-message {
