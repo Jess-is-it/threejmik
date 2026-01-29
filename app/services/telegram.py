@@ -1,4 +1,7 @@
-import httpx
+try:
+    import httpx
+except ImportError:  # pragma: no cover
+    httpx = None
 
 from app.db import get_db
 from app.services.app_settings import is_mock_mode
@@ -21,6 +24,8 @@ def get_default_recipients() -> list[str]:
 def send_message(chat_ids: list[str], message: str) -> None:
     if is_mock_mode():
         return
+    if httpx is None:
+        raise RuntimeError("httpx is not installed")
     token = get_telegram_token()
     if not token:
         raise RuntimeError("Missing Telegram token")
@@ -29,4 +34,7 @@ def send_message(chat_ids: list[str], message: str) -> None:
         for chat_id in chat_ids:
             if not chat_id:
                 continue
-            client.post(url, json={"chat_id": chat_id, "text": message})
+            res = client.post(url, json={"chat_id": chat_id, "text": message})
+            if not res.is_success:
+                detail = (res.text or "").strip()
+                raise RuntimeError(f"Telegram send failed for chat_id={chat_id}: HTTP {res.status_code} {detail}")

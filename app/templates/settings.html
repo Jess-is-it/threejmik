@@ -1,83 +1,359 @@
 {% extends "base.html" %}
 {% from "_macros.html" import tip %}
 {% block content %}
-<div class="page-header d-print-none">
-  <div class="row align-items-center">
-    <div class="col">
-      <h2 class="page-title">Settings</h2>
-      <div class="text-secondary">Global monitoring thresholds.</div>
+<div class="card mt-3">
+  <div class="card-header">
+    <ul class="nav nav-tabs card-header-tabs" data-bs-toggle="tabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <a href="#rv-settings-general" class="nav-link active" data-bs-toggle="tab" role="tab">General</a>
+      </li>
+      <li class="nav-item" role="presentation">
+        <a href="#rv-settings-telegram" class="nav-link" data-bs-toggle="tab" role="tab">Telegram</a>
+      </li>
+      <li class="nav-item" role="presentation">
+        <a href="#rv-settings-auth" class="nav-link" data-bs-toggle="tab" role="tab">Authentication</a>
+      </li>
+      <li class="nav-item" role="presentation">
+        <a href="#rv-settings-danger" class="nav-link text-danger" data-bs-toggle="tab" role="tab">Danger</a>
+      </li>
+    </ul>
+  </div>
+  <div class="card-body">
+    <div class="tab-content">
+      <div class="tab-pane active show" id="rv-settings-general" role="tabpanel">
+        <form method="post" action="/settings">
+          <input type="hidden" name="section" value="general">
+          <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title mb-0">MikroTik</h3></div>
+            <div class="card-body">
+              <label class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="mock_mode" value="1" {% if settings.mock_mode %}checked{% endif %}>
+                <span class="form-check-label">Mock Mode (simulate router API/exports) {{ tip("Enable to simulate MikroTik API and file operations for UI testing. Disable for real backups.") }}</span>
+              </label>
+              <label class="form-check form-switch mt-3">
+                <input class="form-check-input" type="checkbox" name="export_show_sensitive" value="1" {% if settings.export_show_sensitive %}checked{% endif %}>
+                <span class="form-check-label">Include sensitive values in .rsc exports (passwords) {{ tip("If enabled, RouterVault requests RouterOS exports with show-sensitive=yes (includes passwords/secrets in the .rsc).") }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title mb-0">Alerts</h3></div>
+            <div class="card-body">
+              <label class="form-label">Auto-delete alerts after (days) {{ tip("Alerts older than this are deleted automatically by the scheduler. Set to at least 1 day.") }}</label>
+              <input class="form-control" type="number" min="1" name="alerts_retention_days" value="{{ settings.alerts_retention_days or 30 }}" data-bs-toggle="tooltip" title="Delete alerts older than this many days.">
+              <div class="form-hint">Alerts are shown in the Dashboard drawer and marked read when viewed.</div>
+            </div>
+          </div>
+          <div class="text-end">
+            <button class="btn btn-primary" type="submit">Save</button>
+          </div>
+        </form>
+
+        <div class="card mt-3">
+          <div class="card-header"><h3 class="card-title mb-0">Configuration Backup</h3></div>
+          <div class="card-body">
+            <div class="text-secondary mb-3">
+              Download a configuration backup (routers, settings, accounts) and restore it on another RouterVault server.
+            </div>
+            <div class="btn-list">
+              <a class="btn btn-outline-primary" href="/settings/config-backup/download">
+                <i class="ti ti-download me-1"></i>
+                Download config backup
+              </a>
+              <button class="btn btn-warning" type="button" data-bs-toggle="modal" data-bs-target="#rv-config-restore-modal">
+                <i class="ti ti-upload me-1"></i>
+                Restore configuration
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="rv-settings-telegram" role="tabpanel">
+        <form method="post" action="/settings">
+          <input type="hidden" name="section" value="telegram">
+          <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title mb-0">Telegram</h3></div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label">Bot Token {{ tip("Telegram bot token used to send notifications.") }}</label>
+                <input class="form-control" name="telegram_token" value="{{ settings.telegram_token or '' }}" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" data-bs-toggle="tooltip" title="Telegram bot token.">
+              </div>
+              <div class="mb-0">
+                <label class="form-label">Chat ID {{ tip("Comma-separated Telegram chat IDs to receive notifications.") }}</label>
+                <input class="form-control" name="telegram_recipients" value="{{ settings.telegram_recipients or '' }}" placeholder="-1001234567890" data-bs-toggle="tooltip" title="Comma-separated chat IDs (e.g. -100123...).">
+              </div>
+            </div>
+          </div>
+          <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title mb-0">Notifications</h3></div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="telegram_notify_backup_failed" value="1" {% if settings.telegram_notify_backup_failed %}checked{% endif %}>
+                    <span class="form-check-label">Backup/check failures {{ tip("Send an alert when RouterVault cannot check a router or create a backup (API down, timeouts, errors).") }}</span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="telegram_notify_router_recovered" value="1" {% if settings.telegram_notify_router_recovered %}checked{% endif %}>
+                    <span class="form-check-label">Router recovered {{ tip("Send an alert when a router that previously had errors starts passing checks again.") }}</span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="telegram_notify_backup_created" value="1" {% if settings.telegram_notify_backup_created %}checked{% endif %}>
+                    <span class="form-check-label">Automatic backup created {{ tip("Send an alert when RouterVault creates an automatic backup.") }}</span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="telegram_notify_manual_backup" value="1" {% if settings.telegram_notify_manual_backup %}checked{% endif %}>
+                    <span class="form-check-label">Manual backup created {{ tip("Send an alert when you trigger a manual backup.") }}</span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="telegram_notify_restore" value="1" {% if settings.telegram_notify_restore %}checked{% endif %}>
+                    <span class="form-check-label">Restore actions {{ tip("Send an alert when a restore is started (or fails).") }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="text-end mt-4">
+            <button class="btn btn-primary" type="submit">Save</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-pane" id="rv-settings-auth" role="tabpanel">
+        <div class="card">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <h3 class="card-title mb-0">Accounts</h3>
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#rv-account-modal" data-rv-user-id="" data-rv-username="">
+              <i class="ti ti-plus me-1"></i> Add Account
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-vcenter card-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th class="text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for user in users %}
+                  <tr>
+                    <td class="fw-semibold">{{ user.username }}</td>
+                    <td class="text-secondary">{{ format_ts_ph(user.created_at) }}</td>
+                    <td class="text-secondary">{{ format_ts_ph(user.updated_at) }}</td>
+                    <td class="text-end">
+                      <button
+                        class="btn btn-outline-primary"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#rv-account-modal"
+                        data-rv-user-id="{{ user.id }}"
+                        data-rv-username="{{ user.username }}"
+                        aria-label="Update"
+                        data-bs-title="Update"
+                      >
+                        <i class="ti ti-edit"></i>
+                      </button>
+                      {% if not user.protected %}
+                      <form method="post" action="/settings/users/{{ user.id }}/delete" class="d-inline" onsubmit="return confirm('Delete account {{ user.username }}?');">
+                        <button class="btn btn-outline-danger" type="submit" aria-label="Delete" data-bs-title="Delete">
+                          <i class="ti ti-trash"></i>
+                        </button>
+                      </form>
+                      {% else %}
+                      <button class="btn btn-outline-danger" type="button" disabled aria-label="Delete" data-bs-title="Default account cannot be deleted">
+                        <i class="ti ti-trash"></i>
+                      </button>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr>
+                    <td colspan="4" class="text-secondary">No accounts found.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer text-secondary">
+            Accounts apply immediately on the next request.
+          </div>
+        </div>
+
+        <div class="modal modal-blur fade" id="rv-account-modal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="rv-account-modal-title">Add Account</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <form method="post" action="/settings/users/save" id="rv-account-form">
+                <div class="modal-body">
+                  <input type="hidden" name="user_id" id="rv-account-user-id" value="">
+                  <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input class="form-control" name="username" id="rv-account-username" placeholder="admin2" required>
+                  </div>
+                  <div class="mb-0">
+                    <label class="form-label">Password</label>
+                    <input class="form-control" name="password" id="rv-account-password" type="password" placeholder="Leave blank to keep current password">
+                    <div class="form-hint" id="rv-account-password-hint">Required for new accounts.</div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <div class="btn-list ms-auto">
+                    <button type="submit" class="btn btn-primary" id="rv-account-save-btn">Save</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="rv-settings-danger" role="tabpanel">
+        <div class="card border-danger">
+          <div class="card-header bg-danger-lt">
+            <h3 class="card-title text-danger mb-0">Danger!</h3>
+          </div>
+          <div class="card-body">
+            <div class="alert alert-danger" role="alert">
+              <strong>Format Backup Database</strong><br>
+              This will remove all backups and logs from the database and delete backup/rsc files on disk. Routers are not deleted unless you explicitly choose to include them. This cannot be undone.
+            </div>
+            <form method="post" action="/settings/format-backups" onsubmit="return confirmFormat(this);">
+              <div class="mb-3">
+                <label class="form-label">Type <strong>format</strong> to confirm</label>
+                <input class="form-control" name="confirm_word" placeholder="format" required>
+              </div>
+              <div class="mb-3 form-check">
+                <input class="form-check-input" type="checkbox" name="include_routers" value="1" id="includeRoutersCheck">
+                <label class="form-check-label text-danger" for="includeRoutersCheck">Also delete routers (all saved router entries)</label>
+              </div>
+              <button class="btn btn-danger" type="submit">Format Backup Database</button>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-<form method="post" action="/settings">
-  <div class="card mb-4">
-    <div class="card-header"><h3 class="card-title">Authentication</h3></div>
-    <div class="card-body">
-      <div class="mb-3">
-        <label class="form-label">Username {{ tip("Basic Auth username used to access the RouterVault web UI.") }}</label>
-        <input class="form-control" name="basic_user" value="{{ settings.basic_user or '' }}" placeholder="admin" data-bs-toggle="tooltip" title="Basic Auth username for the web UI.">
-      </div>
-      <div class="mb-3">
-        <label class="form-label">Password {{ tip("Basic Auth password. Leave blank to keep the current password.") }}</label>
-        <input class="form-control" name="basic_password" type="password" value="" placeholder="Leave blank to keep current password" data-bs-toggle="tooltip" title="Leave blank to keep the current password.">
-      </div>
-      <div class="text-secondary">Changes apply immediately on next request.</div>
-    </div>
-  </div>
-  <div class="card mb-4">
-    <div class="card-header"><h3 class="card-title">MikroTik</h3></div>
-    <div class="card-body">
-      <label class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" name="mock_mode" value="1" {% if settings.mock_mode %}checked{% endif %}>
-        <span class="form-check-label">Mock Mode (simulate router API/exports) {{ tip("Enable to simulate MikroTik API and file operations for UI testing. Disable for real backups.") }}</span>
-      </label>
-      <label class="form-check form-switch mt-3">
-        <input class="form-check-input" type="checkbox" name="export_show_sensitive" value="1" {% if settings.export_show_sensitive %}checked{% endif %}>
-        <span class="form-check-label">Include sensitive values in .rsc exports (passwords) {{ tip("If enabled, RouterVault requests RouterOS exports with show-sensitive=yes (includes passwords/secrets in the .rsc).") }}</span>
-      </label>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-header"><h3 class="card-title">Telegram</h3></div>
-    <div class="card-body">
-      <div class="mb-3">
-        <label class="form-label">Bot Token {{ tip("Telegram bot token used to send notifications.") }}</label>
-        <input class="form-control" name="telegram_token" value="{{ settings.telegram_token or '' }}" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" data-bs-toggle="tooltip" title="Telegram bot token.">
-      </div>
-      <div class="mb-3">
-        <label class="form-label">Chat ID {{ tip("Comma-separated Telegram chat IDs to receive notifications.") }}</label>
-        <input class="form-control" name="telegram_recipients" value="{{ settings.telegram_recipients or '' }}" placeholder="-1001234567890" data-bs-toggle="tooltip" title="Comma-separated chat IDs (e.g. -100123...).">
-      </div>
-    </div>
-    <div class="card-footer text-end">
-      <button class="btn btn-primary" type="submit">Save Settings</button>
-    </div>
-  </div>
-</form>
 
-<div class="card mt-4 border-danger">
-  <div class="card-header bg-danger-lt">
-    <h3 class="card-title text-danger mb-0">Danger!</h3>
-  </div>
-  <div class="card-body">
-    <div class="alert alert-danger" role="alert">
-      <strong>Format Backup Database</strong><br>
-      This will remove all backups and logs from the database and delete backup/rsc files on disk. Routers are not deleted unless you explicitly choose to include them. This cannot be undone.
+<div class="modal modal-blur fade" id="rv-config-restore-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Restore configuration</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="/settings/config-backup/restore" enctype="multipart/form-data" onsubmit="return confirm('Restore configuration from this file?');">
+        <div class="modal-body">
+          <div class="alert alert-warning" role="alert">
+            Restoring can overwrite existing routers/settings/accounts. Type <strong>restore</strong> to confirm.
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Backup file (.zip)</label>
+            <input class="form-control" type="file" name="file" accept=".zip" required>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-check">
+                <input class="form-check-input" type="checkbox" name="restore_settings" value="1" checked>
+                <span class="form-check-label">Settings</span>
+              </label>
+            </div>
+            <div class="col-md-4">
+              <label class="form-check">
+                <input class="form-check-input" type="checkbox" name="restore_routers" value="1" checked>
+                <span class="form-check-label">Routers</span>
+              </label>
+            </div>
+            <div class="col-md-4">
+              <label class="form-check">
+                <input class="form-check-input" type="checkbox" name="restore_users" value="1">
+                <span class="form-check-label">Accounts</span>
+              </label>
+            </div>
+          </div>
+          <div class="mb-0">
+            <label class="form-label">Type <strong>restore</strong> to confirm</label>
+            <input class="form-control" name="confirm_word" placeholder="restore" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div class="btn-list ms-auto">
+            <button class="btn btn-warning" type="submit">Restore</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          </div>
+        </div>
+      </form>
     </div>
-    <form method="post" action="/settings/format-backups" onsubmit="return confirmFormat(this);">
-      <div class="mb-3">
-        <label class="form-label">Type <strong>format</strong> to confirm</label>
-        <input class="form-control" name="confirm_word" placeholder="format" required>
-      </div>
-      <div class="mb-3 form-check">
-        <input class="form-check-input" type="checkbox" name="include_routers" value="1" id="includeRoutersCheck">
-        <label class="form-check-label text-danger" for="includeRoutersCheck">Also delete routers (all saved router entries)</label>
-      </div>
-      <button class="btn btn-danger" type="submit">Format Backup Database</button>
-    </form>
   </div>
 </div>
 <script>
+  (() => {
+    const hash = window.location && window.location.hash ? window.location.hash : "";
+    if (!hash) return;
+    const trigger = document.querySelector(`a[href="${hash}"][data-bs-toggle="tab"]`);
+    if (!trigger || !(window.bootstrap && bootstrap.Tab)) return;
+    try {
+      new bootstrap.Tab(trigger).show();
+    } catch (e) {
+      // ignore
+    }
+  })();
+
+  (() => {
+    const modalEl = document.getElementById("rv-account-modal");
+    if (!modalEl) return;
+    const elId = document.getElementById("rv-account-user-id");
+    const elUsername = document.getElementById("rv-account-username");
+    const elPassword = document.getElementById("rv-account-password");
+    const elTitle = document.getElementById("rv-account-modal-title");
+    const elHint = document.getElementById("rv-account-password-hint");
+    if (!elId || !elUsername || !elPassword || !elTitle || !elHint) return;
+
+    const setMode = (isEdit) => {
+      if (isEdit) {
+        elTitle.textContent = "Edit Account";
+        elPassword.required = false;
+        elHint.textContent = "Leave blank to keep current password.";
+      } else {
+        elTitle.textContent = "Add Account";
+        elPassword.required = true;
+        elHint.textContent = "Required for new accounts.";
+      }
+    };
+
+    modalEl.addEventListener("show.bs.modal", (event) => {
+      const button = event.relatedTarget;
+      const userId = button && button.getAttribute ? (button.getAttribute("data-rv-user-id") || "") : "";
+      const username = button && button.getAttribute ? (button.getAttribute("data-rv-username") || "") : "";
+      const isEdit = Boolean(userId);
+      elId.value = userId;
+      elUsername.value = username;
+      elPassword.value = "";
+      setMode(isEdit);
+      window.setTimeout(() => {
+        try { elUsername.focus(); } catch (e) {}
+      }, 50);
+    });
+  })();
+
   function confirmFormat(form) {
     const input = form.querySelector('input[name="confirm_word"]');
     if (!input) return false;

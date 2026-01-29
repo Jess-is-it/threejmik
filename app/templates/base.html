@@ -6,70 +6,70 @@
   <title>{{ app_name }} - {{ title if title else "" }}</title>
   <link rel="stylesheet" href="/static/tabler/tabler.min.css">
   <link rel="stylesheet" href="/static/tabler/tabler-icons.min.css">
-  <link rel="stylesheet" href="/static/styles.css?v=7">
+  <link rel="stylesheet" href="/static/styles.css?v=23">
 </head>
-<body class="theme-light">
-  <div class="page">
-    <header class="navbar navbar-light sticky-top d-print-none rv-main-nav">
-      <div class="container-xl w-100 flex-column">
-        <div class="d-flex align-items-center justify-content-between w-100">
-          <div class="navbar-brand navbar-brand-autodark mb-0">
-            <a href="/" class="text-decoration-none text-reset">
-              <div class="navbar-brand-title">RouterVault</div>
-            </a>
-          </div>
-          <div class="d-flex align-items-center rv-metrics-row">
-            <div class="rv-metric" data-bs-toggle="tooltip" title="CPU usage">
-              <i class="ti ti-cpu rv-metric-icon"></i><span class="rv-metric-title">CPU</span><span class="rv-metric-value" id="rv-stat-cpu">-</span>
-            </div>
+	<body class="theme-light">
+  {% set page_label = "Dashboard" if request.url.path == "/" else ("Routers" if request.url.path.startswith("/routers") else ("Backups" if request.url.path.startswith("/backups") else ("Settings" if request.url.path.startswith("/settings") else ""))) %}
+	  <div class="page">
+	    <header class="navbar navbar-light sticky-top d-print-none rv-main-nav">
+	      <div class="container-fluid rv-container w-100">
+	        <div class="d-flex align-items-center justify-content-between w-100 py-2">
+	          <a href="/" class="rv-brand text-decoration-none text-reset">
+	            <span class="rv-brand-icon" aria-hidden="true"><i class="ti ti-lock"></i></span>
+	            <span class="rv-brand-title">RouterVault{% if page_label %} <span class="text-secondary">{{ page_label }}</span>{% endif %}</span>
+	          </a>
+	          <div class="d-flex align-items-center rv-metrics-row">
+	            <div class="rv-metric" data-bs-toggle="tooltip" title="CPU usage">
+	              <i class="ti ti-cpu rv-metric-icon"></i><span class="rv-metric-title">CPU</span><span class="rv-metric-value" id="rv-stat-cpu">-</span>
+	            </div>
             <div class="rv-metric" data-bs-toggle="tooltip" title="RAM usage">
               <i class="ti ti-memory rv-metric-icon"></i><span class="rv-metric-title">RAM</span><span class="rv-metric-value" id="rv-stat-ram">-</span>
             </div>
             <div class="rv-metric" data-bs-toggle="tooltip" title="Disk usage for /data">
               <i class="ti ti-database rv-metric-icon"></i><span class="rv-metric-title">DISK</span><span class="rv-metric-value" id="rv-stat-disk">-</span>
             </div>
-            <div class="rv-metric" data-bs-toggle="tooltip" title="Host uptime">
-              <i class="ti ti-clock rv-metric-icon"></i><span class="rv-metric-title">UPTIME</span><span class="rv-metric-value" id="rv-stat-uptime">-</span>
-            </div>
-          </div>
-        </div>
-        <div class="w-100 mt-2">
-          <div class="collapse navbar-collapse show" id="main-menu">
-            <ul class="navbar-nav flex-row gap-4 align-items-center">
-              <li class="nav-item">
-                <a class="nav-link px-0 rv-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
-                  <i class="ti ti-layout-dashboard me-1"></i>
-                  <span>Dashboard</span>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/routers') %}active{% endif %}" href="/routers">
-                  <i class="ti ti-router me-1"></i>
-                  <span>Routers</span>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/backups') %}active{% endif %}" href="/backups">
-                  <i class="ti ti-archive me-1"></i>
-                  <span>Backups</span>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link px-0 rv-nav-link {% if request.url.path.startswith('/settings') %}active{% endif %}" href="/settings">
-                  <i class="ti ti-settings me-1"></i>
-                  <span>Settings</span>
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </header>
-    <div class="page-wrapper">
-      <div class="rv-page-container {{ container_class if container_class else 'container-xl' }}">
-        {% if notice %}
-        <div class="alert alert-success" role="alert" data-autoclear="true">{{ notice }}</div>
-        {% endif %}
+	            <div class="rv-metric" data-bs-toggle="tooltip" title="Host uptime">
+	              <i class="ti ti-clock rv-metric-icon"></i><span class="rv-metric-title">UPTIME</span><span class="rv-metric-value" id="rv-stat-uptime">-</span>
+	            </div>
+	          </div>
+	        </div>
+	      </div>
+	    </header>
+	    <div class="page-wrapper">
+	      <div class="rv-subnav-bar d-print-none">
+	        <div class="container-fluid rv-container">
+	          <ul class="nav nav-pills rv-subnav" role="tablist">
+	            <li class="nav-item">
+	              <a class="nav-link rv-subnav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+	                <i class="ti ti-layout-dashboard me-1"></i>
+	                <span>Dashboard</span>
+	              </a>
+	            </li>
+	            <li class="nav-item">
+	              <a class="nav-link rv-subnav-link {% if request.url.path.startswith('/routers') %}active{% endif %}" href="/routers">
+	                <i class="ti ti-router me-1"></i>
+	                <span>Routers</span>
+	              </a>
+	            </li>
+	            <li class="nav-item">
+	              <a class="nav-link rv-subnav-link {% if request.url.path.startswith('/backups') %}active{% endif %}" href="/backups">
+	                <i class="ti ti-archive me-1"></i>
+	                <span>Backups</span>
+	              </a>
+	            </li>
+	            <li class="nav-item">
+	              <a class="nav-link rv-subnav-link {% if request.url.path.startswith('/settings') %}active{% endif %}" href="/settings">
+	                <i class="ti ti-settings me-1"></i>
+	                <span>Settings</span>
+	              </a>
+	            </li>
+	          </ul>
+	        </div>
+	      </div>
+	      <div class="rv-page-container rv-container {{ container_class if container_class else 'container-fluid' }}">
+	        {% if notice %}
+	        <div class="alert alert-success" role="alert" data-autoclear="true">{{ notice }}</div>
+	        {% endif %}
         {% if error %}
         <div class="alert alert-danger" role="alert">{{ error }}</div>
         {% endif %}
