@@ -2,6 +2,20 @@
 
 RouterVault is an auto-backup system for MikroTik RouterOS v7 with local storage, retention, Telegram notifications, config-change detection (hash + logs), and a server-rendered web UI.
 
+## Quick Install (One Line)
+
+On a new Debian/Ubuntu server, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jess-is-it/threejmik/master/install.sh | bash
+```
+
+The installer will:
+- Install Docker + Docker Compose plugin (if missing)
+- Prompt you for the initial username/password (first account is non-deletable)
+- Clone RouterVault to `/opt/routervault`
+- Build and start the service on port `8000` (and enable auto-start on reboot)
+
 ## Tech Stack
 - Python 3.11
 - FastAPI + Uvicorn
@@ -24,7 +38,7 @@ RouterVault is an auto-backup system for MikroTik RouterOS v7 with local storage
    uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
-3. Visit `http://localhost:8000` and log in (default `admin` / `changeme`), then change credentials in Settings.
+3. Visit `http://localhost:8000` and log in (default `admin` / `changeme` unless you bootstrapped a different first account), then manage accounts in Settings → Authentication.
 
 ## Docker
 

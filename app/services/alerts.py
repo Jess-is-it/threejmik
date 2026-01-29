@@ -51,6 +51,14 @@ def mark_all_alerts_viewed() -> tuple[int, int]:
     return int(viewed["c"] or 0), int(total["c"] or 0)
 
 
+def clear_all_alerts() -> tuple[int, int, int]:
+    with get_db(settings.db_path) as conn:
+        total = conn.execute("SELECT COUNT(1) AS c FROM alerts").fetchone()
+        deleted = int(total["c"] or 0) if total else 0
+        conn.execute("DELETE FROM alerts")
+    return deleted, 0, 0
+
+
 def create_alert(
     *,
     router_id: Optional[int],
@@ -109,4 +117,3 @@ def create_alert(
                 pass
 
     return alert_id
-

@@ -98,17 +98,15 @@
   </div>
 </div>
 
-<div class="offcanvas offcanvas-end" tabindex="-1" id="rv-alerts-drawer" aria-labelledby="rv-alerts-title">
+<div class="offcanvas offcanvas-end rv-alerts-drawer" tabindex="-1" id="rv-alerts-drawer" aria-labelledby="rv-alerts-title">
   <div class="offcanvas-header">
     <h2 class="offcanvas-title" id="rv-alerts-title">Alerts</h2>
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
-  <div class="offcanvas-body pt-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <div class="text-secondary">Newest first</div>
-      <button class="btn btn-outline-secondary btn-sm" type="button" id="rv-alerts-mark-read">Mark all read</button>
-    </div>
-    <div class="list-group list-group-flush" id="rv-alerts-list">
+  <div class="offcanvas-body pt-0 rv-alerts-body">
+    <div class="rv-alerts-scroll">
+      <div class="text-secondary mb-3 px-3">Newest first</div>
+      <div class="list-group list-group-flush" id="rv-alerts-list">
       {% for alert in alerts %}
       {% set is_new = not alert.viewed_at %}
       <div class="list-group-item rv-alert-item {% if is_new %}rv-alert-new{% endif %}" data-alert-new="{{ 1 if is_new else 0 }}">
@@ -123,7 +121,7 @@
             {% endif %}
           </div>
           <div class="flex-grow-1 min-w-0">
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2 rv-alert-title-row">
               <div class="rv-alert-title fw-semibold text-truncate {% if is_new %}rv-alert-title-new{% endif %}">{{ alert.title }}</div>
               {% if is_new %}
               <span class="badge bg-azure text-white rv-alert-badge-new">New</span>
@@ -132,13 +130,20 @@
             <div class="text-secondary small">
               {% if alert.router_name %}{{ alert.router_name }} · {% endif %}{{ format_ts_ph(alert.created_at) }}
             </div>
-            <div class="mt-2 rv-alert-message">{{ alert.message }}</div>
+            <div class="mt-2 rv-alert-message" data-bs-toggle="tooltip" title="{{ alert.message }}">{{ alert.message }}</div>
           </div>
         </div>
       </div>
       {% else %}
       <div class="list-group-item text-secondary">No alerts yet.</div>
       {% endfor %}
+      </div>
+    </div>
+    <div class="rv-alerts-actions">
+      <div class="btn-list px-3">
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="rv-alerts-mark-read">Mark all read</button>
+        <button class="btn btn-outline-danger btn-sm" type="button" id="rv-alerts-clear-all">Clear all</button>
+      </div>
     </div>
   </div>
 </div>
@@ -148,7 +153,8 @@
     const drawer = document.getElementById("rv-alerts-drawer");
     const kpi = document.getElementById("rv-alerts-kpi");
     const btnMark = document.getElementById("rv-alerts-mark-read");
-    if (!drawer || !kpi || !btnMark) return;
+    const btnClear = document.getElementById("rv-alerts-clear-all");
+    if (!drawer || !kpi || !btnMark || !btnClear) return;
 
     const markRead = async () => {
       try {
@@ -170,11 +176,29 @@
       if (unreadBadge) unreadBadge.remove();
     };
 
-    drawer.addEventListener("shown.bs.offcanvas", () => {
-      markRead();
-    });
     btnMark.addEventListener("click", () => {
       markRead();
+    });
+
+    btnClear.addEventListener("click", async () => {
+      if (!confirm("Clear all alerts? This cannot be undone.")) return;
+      try {
+        const res = await fetch("/alerts/clear", { method: "POST" });
+        const payload = await res.json();
+        if (payload && payload.ok) {
+          kpi.textContent = `${payload.viewed}/${payload.total}`;
+        } else {
+          kpi.textContent = "0/0";
+        }
+      } catch (e) {
+        // ignore
+      }
+      const list = document.getElementById("rv-alerts-list");
+      if (list) {
+        list.innerHTML = '<div class="list-group-item text-secondary">No alerts yet.</div>';
+      }
+      const unreadBadge = document.querySelector('.rv-kpi-clickable .badge.bg-red');
+      if (unreadBadge) unreadBadge.remove();
     });
   })();
 </script>
@@ -251,7 +275,7 @@
         body.className = "flex-grow-1 min-w-0";
 
         const titleRow = document.createElement("div");
-        titleRow.className = "d-flex align-items-center gap-2";
+        titleRow.className = "d-flex align-items-center gap-2 rv-alert-title-row";
         const title = document.createElement("div");
         title.className = "rv-alert-title fw-semibold text-truncate";
         if (alert.is_new) title.classList.add("rv-alert-title-new");
@@ -272,6 +296,7 @@
         const msg = document.createElement("div");
         msg.className = "mt-2 rv-alert-message";
         msg.textContent = alert.message || "";
+        ensureTooltip(msg, alert.message || "");
 
         body.appendChild(titleRow);
         body.appendChild(meta);

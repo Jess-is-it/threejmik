@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,15 @@ def init_db(db_path: Path) -> None:
     with get_db(db_path) as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                protected INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS routers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -100,6 +110,39 @@ def init_db(db_path: Path) -> None:
             INSERT OR IGNORE INTO settings (id, stale_backup_days) VALUES (1, 3);
             """
         )
+        # Ensure schema upgrades for older DBs.
+        user_columns = [row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "protected" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN protected INTEGER DEFAULT 0")
+
+        # Ensure at least one UI user exists (bootstrap user is non-deletable).
+        users_count = conn.execute("SELECT COUNT(1) AS c FROM users").fetchone()
+        if users_count is None or int(users_count["c"] or 0) == 0:
+            settings_row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
+            row_dict = dict(settings_row) if settings_row else {}
+
+            bootstrap_user = (os.getenv("ROUTERVAULT_BOOTSTRAP_USERNAME", "") or "").strip()
+            bootstrap_pass = os.getenv("ROUTERVAULT_BOOTSTRAP_PASSWORD", "") or ""
+            username = bootstrap_user or (row_dict.get("basic_user") or "admin")
+            password = bootstrap_pass or (row_dict.get("basic_password") or "changeme")
+            username = (username or "admin").strip() or "admin"
+            password = password or "changeme"
+
+            now = utcnow()
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO users (username, password, protected, enabled, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, ?)
+                """,
+                (username, password, now, now),
+            )
+        else:
+            # If a DB already has users but none marked protected, protect the oldest one.
+            has_protected = conn.execute("SELECT COUNT(1) AS c FROM users WHERE protected = 1").fetchone()
+            if has_protected is None or int(has_protected["c"] or 0) == 0:
+                oldest = conn.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1").fetchone()
+                if oldest:
+                    conn.execute("UPDATE users SET protected = 1 WHERE id = ?", (int(oldest["id"]),))
         columns = [row[1] for row in conn.execute("PRAGMA table_info(routers)").fetchall()]
         needs_migration = any(
             col in columns
