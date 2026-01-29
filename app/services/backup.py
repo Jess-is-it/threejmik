@@ -119,7 +119,7 @@ def run_router_check(
     try:
         now = datetime.utcnow()
         prior_error = (router.get("last_error") or "").strip()
-        detection_logs = client.fetch_logs(router.get("last_log_check_at"))
+        detection_logs = client.fetch_logs(router.get("last_log_check_at"), only_config_changes=True)
         log_cursor = client.get_router_clock_iso()
         try:
             cursor_dt = datetime.fromisoformat(log_cursor) - timedelta(seconds=1)
@@ -171,7 +171,7 @@ def run_router_check(
         backup_logs: list[dict] = []
         backup_log_cursor: str | None = router.get("last_backup_log_at") or router.get("last_backup_at") or router.get("last_success_at")
         if needs_backup:
-            backup_logs = client.fetch_logs(backup_log_cursor)
+            backup_logs = client.fetch_logs(backup_log_cursor, only_config_changes=False)
 
         # If this time window contains too much log noise, keep the backup's
         # logs focused on the most recent "detection" window (e.g. last 2 hours).

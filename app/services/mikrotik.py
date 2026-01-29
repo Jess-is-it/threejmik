@@ -157,7 +157,7 @@ class MikroTikClient:
                 return None
         return None
 
-    def fetch_logs(self, since: str | None) -> List[Dict[str, str]]:
+    def fetch_logs(self, since: str | None, *, only_config_changes: bool = False) -> List[Dict[str, str]]:
         if is_mock_mode():
             return []
         api = self._get_api()
@@ -209,14 +209,15 @@ class MikroTikClient:
             if any(phrase in message_l for phrase in noise_phrases):
                 continue
 
-            # Keep only logs likely to represent configuration changes.
-            # We treat scripts/scheduler as potentially-config-changing events.
-            if "script" in topics_l or "scheduler" in topics_l:
-                keep = True
-            else:
-                keep = bool(config_change_re.search(message))
-            if not keep:
-                continue
+            if only_config_changes:
+                # Keep only logs likely to represent configuration changes.
+                # We treat scripts/scheduler as potentially-config-changing events.
+                if "script" in topics_l or "scheduler" in topics_l:
+                    keep = True
+                else:
+                    keep = bool(config_change_re.search(message))
+                if not keep:
+                    continue
 
             filtered.append({"logged_at": logged_at, "message": message, "topics": topics})
         return filtered
@@ -228,10 +229,10 @@ class MikroTikClient:
         api = self._get_api()
         try:
             try:
+                args = {"terse": "yes"}
                 if export_show_sensitive():
-                    export_lines = api("/export", **{"show-sensitive": "yes"})
-                else:
-                    export_lines = api("/export")
+                    args["show-sensitive"] = "yes"
+                export_lines = api("/export", **args)
             except Exception:
                 export_lines = api("/export")
 
@@ -240,10 +241,22 @@ class MikroTikClient:
                 if isinstance(line, str):
                     rendered.append(line)
                     continue
+                if isinstance(line, (bytes, bytearray)):
+                    try:
+                        rendered.append(bytes(line).decode("utf-8", errors="replace"))
+                    except Exception:
+                        continue
+                    continue
                 if not isinstance(line, dict):
                     continue
                 for key in ("text", "ret", "message", "data"):
                     value = line.get(key)
+                    if isinstance(value, (bytes, bytearray)) and value:
+                        try:
+                            rendered.append(bytes(value).decode("utf-8", errors="replace"))
+                        except Exception:
+                            pass
+                        break
                     if isinstance(value, str) and value:
                         rendered.append(value)
                         break
@@ -264,10 +277,10 @@ class MikroTikClient:
             return self.export_config().encode("utf-8")
         api = self._get_api()
         try:
+            args = {"file": name, "terse": "yes"}
             if export_show_sensitive():
-                list(api("/export", file=name, **{"show-sensitive": "yes"}))
-            else:
-                list(api("/export", file=name))
+                args["show-sensitive"] = "yes"
+            list(api("/export", **args))
         except Exception:
             list(api("/export", file=name))
         filename = self._wait_for_file(f"{name}.rsc")
@@ -341,9 +354,15 @@ class MikroTikClient:
 
 
 def normalize_export(text: str) -> str:
-    lines = []
+    # RouterOS sometimes produces `.rsc` files with embedded NUL bytes or other
+    # control characters. These are not meaningful configuration differences,
+    # but they can cause hash flips and backup storms. Strip them here.
+    text = (text or "").replace("\x00", "")
+    lines: list[str] = []
     for line in text.splitlines():
-        stripped = line.strip()
+        # Remove other low ASCII control chars (keep tabs/spaces as normal whitespace).
+        cleaned = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", "", line)
+        stripped = cleaned.strip()
         if not stripped or stripped.startswith("#"):
             continue
         lines.append(stripped)

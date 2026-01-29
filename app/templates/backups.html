@@ -153,7 +153,7 @@
                         {{ backup.logs_preview }}
                       </button>
                       {% else %}
-                      <span class="text-secondary">No logs</span>
+                      <span class="text-secondary">No new logs detected</span>
                       {% endif %}
                     </td>
                     <td class="text-end rv-col-actions">
@@ -206,7 +206,7 @@
         {% if backup.logs_text %}
         <pre class="text-secondary">{{ backup.logs_text }}</pre>
         {% else %}
-        <div class="text-secondary">No logs recorded for this backup.</div>
+        <div class="text-secondary">No new logs detected for this backup.</div>
         {% endif %}
       </div>
       <div class="modal-footer">
