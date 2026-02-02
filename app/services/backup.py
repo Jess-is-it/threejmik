@@ -162,7 +162,44 @@ def run_router_check(
                 normalized = ""
         new_hash = sha256_text(normalized)
 
-        changed, summary = detect_change(detection_logs, new_hash, router.get("last_hash"))
+        # If our hashing logic changes (or RouterOS export formatting shifts), the
+        # stored `last_hash` can temporarily diverge even when the config is the
+        # same. Avoid creating a backup storm by double-checking against the
+        # previously-stored `.rsc` export when the hash differs.
+        old_hash = router.get("last_hash")
+        if old_hash and new_hash != old_hash:
+            try:
+                prev_rsc_name: str | None = None
+                links_raw = (router.get("last_backup_links") or "").strip()
+                if links_raw:
+                    try:
+                        links = json.loads(links_raw)
+                        prev_rsc_link = (links or {}).get("rsc") or ""
+                        prev_rsc_name = Path(prev_rsc_link).name or None
+                    except Exception:
+                        prev_rsc_name = None
+
+                if not prev_rsc_name:
+                    with get_db(settings.db_path) as conn:
+                        row = conn.execute(
+                            "SELECT rsc_link FROM backups WHERE router_id = ? ORDER BY created_at DESC LIMIT 1",
+                            (router["id"],),
+                        ).fetchone()
+                        if row and row[0]:
+                            prev_rsc_name = Path(row[0]).name or None
+
+                if prev_rsc_name:
+                    _, _, rsc_dir = ensure_storage_dirs(router["name"])
+                    prev_path = rsc_dir / prev_rsc_name
+                    if prev_path.exists():
+                        prev_text = prev_path.read_text("utf-8", errors="replace")
+                        prev_hash = sha256_text(normalize_export(prev_text))
+                        if prev_hash == new_hash:
+                            old_hash = new_hash
+            except Exception:
+                pass
+
+        changed, summary = detect_change(detection_logs, new_hash, old_hash)
         forced = bool(force) or (baseline_due and should_force_backup(router, now))
         needs_backup = changed or forced
 

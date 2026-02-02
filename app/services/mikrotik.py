@@ -353,20 +353,79 @@ class MikroTikClient:
         list(api("/system/backup/load", name=base_name))
 
 
-def normalize_export(text: str) -> str:
-    # RouterOS sometimes produces `.rsc` files with embedded NUL bytes or other
-    # control characters. These are not meaningful configuration differences,
-    # but they can cause hash flips and backup storms. Strip them here.
-    text = (text or "").replace("\x00", "")
-    lines: list[str] = []
-    for line in text.splitlines():
-        # Remove other low ASCII control chars (keep tabs/spaces as normal whitespace).
-        cleaned = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", "", line)
-        stripped = cleaned.strip()
+def normalize_export(text: str | bytes | bytearray | None) -> str:
+    """
+    Normalize RouterOS export text so hashing is stable across equivalent formats.
+
+    RouterOS exports can vary between:
+    - non-terse: section headers like `/ip firewall nat` followed by `add ...` lines
+    - terse: single-line commands like `/ip firewall nat add ...`
+
+    They can also include embedded NUL/control characters and wrapped lines using `\\`.
+    These differences are not meaningful configuration changes; normalize them away.
+    """
+    if isinstance(text, (bytes, bytearray)):
+        text = bytes(text).decode("utf-8", errors="replace")
+    raw = (text or "").replace("\x00", "")
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Strip other low ASCII control chars (keep tabs/spaces as normal whitespace).
+    raw = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", "", raw)
+
+    # First pass: strip comments/empties and join wrapped lines ending with "\".
+    joined: list[str] = []
+    buf: str | None = None
+    for line in raw.split("\n"):
+        line = line.rstrip()
+        if not line:
+            continue
+        stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        lines.append(stripped)
-    return "\n".join(lines)
+
+        if buf is None:
+            buf = stripped
+        else:
+            buf = f"{buf} {stripped}"
+
+        if buf.endswith("\\"):
+            buf = buf[:-1].rstrip()
+            continue
+        joined.append(buf)
+        buf = None
+    if buf:
+        joined.append(buf)
+
+    # Second pass: canonicalize section header format into terse-style lines.
+    out: list[str] = []
+    current_prefix: str | None = None
+    cmd_tokens = {"add", "set", "remove", "enable", "disable", "print", "export", "import"}
+
+    for line in joined:
+        if not line:
+            continue
+        if line.startswith("/"):
+            tokens = line.split()
+            cmd_idx = None
+            for i, tok in enumerate(tokens):
+                if i == 0:
+                    continue
+                if tok in cmd_tokens:
+                    cmd_idx = i
+                    break
+            if cmd_idx is None:
+                current_prefix = line
+                continue
+            current_prefix = " ".join(tokens[:cmd_idx])
+            out.append(line)
+            continue
+
+        if current_prefix:
+            out.append(f"{current_prefix} {line}")
+        else:
+            out.append(line)
+
+    return "\n".join(out)
 
 
 def sha256_text(text: str) -> str:

@@ -63,7 +63,7 @@
         <pre class="text-secondary">{% for entry in logs %}{{ entry.logged_at }} {{ entry.topics }} {{ entry.message }}
 {% endfor %}</pre>
         {% else %}
-        <div class="text-secondary">No logs recorded for this backup.</div>
+        <div class="text-secondary">No new logs detected for this backup.</div>
         {% endif %}
         {% else %}
         <div class="text-secondary">No change logs captured yet.</div>
